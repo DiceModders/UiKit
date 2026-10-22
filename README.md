@@ -1,0 +1,279 @@
+# DiceModders UiKit
+
+A shared UI runtime for Dice Kingdoms mods. One plugin owns the canvases, the asset cache and the game hooks; mods only create scopes.
+
+> **Status: phase 3 (native integrations, in progress).** Managed windows and the `PreferNative` widget skins are wired. The top-right bar now accepts native icon buttons, and the Settings screen accepts add-only tabs and rows. The scoreboard and rules integrations are still stubs. Breaking changes are expected until the native phase is finished. A built-in demo makes an in-game smoke test possible without a separate test mod.
+
+## Setup
+
+1. Build the library and copy `DiceModders.UiKit.dll` to `BepInEx/plugins`.
+   Only one assembly with this name can be installed: remove any older build (including `UIKit_Another_Version`) first.
+2. Reference `DiceModders.UiKit.dll` from your mod.
+3. Add a BepInEx dependency on the UiKit plugin.
+4. Create one scope in `Load` and dispose it in `Unload`.
+
+```csharp
+using DiceModders.UiKit;
+using DiceModders.UiKit.Custom;
+
+public sealed class MyPlugin : BasePlugin {
+    private UiScope _ui;
+
+    public override void Load() {
+        _ui = UiKit.CreateScope("my.mod.id");
+    }
+
+    // Call this after the game UI is loaded: from your own game hook, a top-bar button,
+    // or a menu screen callback. Creating windows during plugin Load works, but the game's
+    // sprites and font may not be loaded yet and the managed fallback look is used.
+    private void ShowMyWindow() {
+        _ui.Custom.Window(w => {
+            w.Title("My window")
+             .Size(420, 280)
+             .Center()
+             .Draggable()
+             .Closable();
+
+            w.Body.Paragraph("Everything created through this scope is removed when the scope is disposed.");
+
+            w.Body.Row(row => {
+                row.Button("OK", () => { /* ... */ }).FillWidth();
+                row.Button("Cancel", w.Close).FillWidth();
+            });
+        });
+    }
+
+    public override bool Unload() {
+        _ui.Dispose();
+        return true;
+    }
+}
+```
+
+The UiKit plugin calls `UiKit.Initialize(...)` once. Mods never create a canvas, scan assets or patch the game themselves.
+
+## Built-in demo
+
+The library can show its own test windows without installing another mod. Enable them in `BepInEx/config/DiceModders.UiKit.cfg`:
+
+```ini
+[Demo]
+Enabled = true
+
+[Widgets]
+Templates = PreferNative
+```
+
+Or launch the game with `--uikit-demo`. With BepInEx ConfigurationManager installed, `[Demo] Enabled` can also be toggled without restarting. The demo contains a scrollable widget gallery, a layer probe for `Layer.Game`, a layer probe for `Layer.BehindGame`, buttons for switching the window ornament, a hammer button in the game's top-right bar, and a **UiKit** tab in the Settings screen.
+
+Windows created before the game's UI is loaded use the managed fallback. Open the demo after entering a match and press **Rebuild (re-scan native skins)** to recreate it with native templates. The same actions are available from code:
+
+```csharp
+UiKit.ShowDemo();
+UiKit.HideDemo();
+UiKit.ToggleDemo();
+UiKit.RebuildDemo();
+```
+
+`Widgets/Templates` accepts `PreferNative`, `ManagedOnly` or `NativeOnly`, so all three policies can be tested from the config file. An unknown value falls back to `PreferNative` and is logged.
+
+## Scopes
+
+`UiKit.CreateScope(id)` is the only entry point. A scope owns:
+
+* every `Window` created through `scope.Custom.Window(...)`;
+* every native registration added through `scope.Native.TopBar` or `scope.Native.Settings`;
+* nothing else. The shared canvases, asset cache and theme belong to the runtime.
+
+IDs are scope-local diagnostics. They are not used as game IDs or network hashes.
+
+## Layers
+
+| Layer | Meaning |
+|---|---|
+| `Layer.BehindGame` | Below the game UI (ambient panels, background overlays). |
+| `Layer.Game` | At the game HUD's band (the game's popups with higher sorting orders stay above it). |
+| `Layer.AboveGame` | Above the game UI. Default for custom windows. |
+
+All three are shared canvases created lazily: at most three per process, no matter how many mods or windows. `Window.Layer(...)` can move a window at runtime; `Window.SortingOrder(...)` is the escape hatch for a per-window nested canvas.
+
+```csharp
+w.Layer(Layer.BehindGame);
+w.Layer(Layer.AboveGame);
+w.SortingOrder(10);
+```
+
+## Windows
+
+`Window` is both the builder and the handle.
+
+```csharp
+var window = _ui.Custom.Window(w => {
+    w.Title("Settings")
+     .Size(480, 360)
+     .Center()
+     .Draggable()
+     .Fullscreenable()
+     .Closable()
+     .Ornament(OrnamentStyle.BorderWithFourCorners)
+     .OnClose(() => { });
+
+    w.Body.Toggle("Enabled", true, value => { /* ... */ });
+    w.Body.Slider(0, 100, 50, value => { /* ... */ }).Format("0");
+    w.Body.Button("Apply", Apply);
+});
+
+window.BringToFront();
+window.Fullscreen();
+window.Restore();
+window.Close();
+```
+
+Useful handle methods: `Show`, `Hide`, `Toggle`, `BringToFront`, `Fullscreen`, `Restore`, `Close`, `Dispose`.
+
+`Position(x, y)` is measured from the top-left corner of the layer. `Center()` does the obvious thing.
+
+## Widgets and layout
+
+`Window.Body` is a vertical `Container`. Containers expose:
+
+* `Text`, `Paragraph`
+* `Button`, `IconButton`
+* `Toggle`, `Slider`, `Dropdown`, `Image`
+* `Scroll`
+* `Row`, `Column`, `Grid`
+* `Spacer`, `Separator`
+* `Spacing`, `Padding`, `Columns`, `CellSize`
+
+All widgets derive from `Element` and can be chained with layout extensions:
+
+```csharp
+w.Body.Text("Title").Align(TextAlignmentOptions.Center).FillWidth();
+w.Body.Paragraph("A long description...").Wrap().FillWidth();
+w.Body.Button("OK", Close).Width(120);
+w.Body.Image(texture).Height(240).FillWidth();
+w.Body.Scroll(list => {
+    for (int i = 0; i < 100; i++) list.Text($"Row {i}");
+});
+```
+
+`Fixed`, `Width`, `Height`, `Fill`, `FillWidth` and `FillHeight` return the same widget type, so the rest of the chain still works.
+
+### Text
+
+* `Text` is one line, cut with `...` when it is too long.
+* `Paragraph` wraps and measures its height automatically when its width changes.
+* `Wrap()` converts a `Text` into an auto-height paragraph; `.Value`, `.Align`, `.Color` and `.Size` are chainable.
+
+### Dropdown
+
+The dropdown uses the game's own popup when the native dropdown template is available. With `TemplatePolicy.PreferNative` (the default) it falls back to a managed compact button that advances to the next option on click. `Index`, `Selected`, `Count`, `Set`, `Options` and `Interactable` work the same in both modes.
+
+### Native skins
+
+`UiOptions.Templates` controls how widgets are dressed:
+
+| Policy | Behavior |
+|---|---|
+| `PreferNative` | Clone the game's widget when its template is found; otherwise use the managed fallback. |
+| `ManagedOnly` | Never clone game widgets; always use the managed versions. |
+| `NativeOnly` | Use only game widgets. If a template is missing, the factory logs an error and returns `null`. |
+
+```csharp
+UiKit.Initialize(this, new UiOptions {
+    Templates = TemplatePolicy.PreferNative,
+});
+```
+
+The native skins are real clones of live game controls:
+
+* buttons from the game's label/icon buttons, including hover, pressed, disabled, cursor and sounds; icon buttons keep the game's tooltip;
+* toggles from the boolean setting control;
+* sliders from the float setting control, including its value label;
+* dropdowns from the language setting's `TMP_Dropdown` and popup;
+* scrollbars from the game's vertical scroll views.
+
+A widget chooses its skin when it is created. Native templates are cached per scene and re-discovered after a scene change, but an already-created widget is not re-skinned. Create windows after the game UI has loaded to get native skins; creating them during plugin `Load` normally uses the managed fallback.
+
+The template search is deliberately best-effort because the game hierarchy is not a public API. Missing templates are logged once and never crash the UI. In `NativeOnly` mode, always null-check widget factory results:
+
+```csharp
+var button = w.Body.Button("Apply", Apply);
+button?.Width(120);
+```
+
+### Images
+
+`Body.Image(Texture)` creates a picture with `KeepAspect`, `Filter`, `Refresh`, `OnPointer` and `OnScroll`.
+
+Pointer callbacks use Unity's `EventTrigger` (Il2CppInterop exposes the event-system handler "interfaces" as classes, so they cannot be implemented directly):
+
+```csharp
+image.OnPointer(e => {
+    if (e.Kind == PointerKind.Drag) { /* e.Delta, e.Uv, e.Position */ }
+});
+```
+
+Supported kinds: `Down`, `Up`, `Click`, `Drag`, `Enter`, `Exit`. `Move` is reserved for a future hover relay.
+
+## Native integrations
+
+Native additions are inserted into the game's own UI hierarchy. They are not separate mod overlays: the player and other mods see ordinary game buttons, tabs and rows, and the game's layout, sounds and hover states continue to work. The creating scope owns their lifetime, but the objects themselves belong to the shared game UI.
+
+Native integrations require game templates. With `TemplatePolicy.ManagedOnly` they log an error and return `null`; with `NativeOnly` or `PreferNative` they attach as soon as a scene with the relevant game UI is available. Registrations survive scene changes and are reattached automatically. Calling these APIs from plugin `Load` is safe.
+
+### Top bar
+
+```csharp
+var button = _ui.Native.TopBar.AddIconButton("hammer", "Open my panel", TogglePanel);
+button?.SetIcon("gear");
+button?.SetTooltip("My panel");
+button?.SetVisible(true);
+button?.SetClick(TogglePanel);
+```
+
+`TopBarButton.IsAlive` is true while the button is present in the current scene. `Dispose` removes it from the bar. The button is a clone of the game's bar button, so it keeps the native art, cursor and click sounds.
+
+### Settings (add-only)
+
+Settings additions are strictly add-only: the API creates new tabs and new rows, never edits or removes built-in settings.
+
+```csharp
+var tab = _ui.Native.Settings.AddTab("my.mod", "My Mod", t => {
+    t.AddHeader("My Mod options");
+    t.AddToggle("Enabled", true, value => { /* ... */ });
+    t.AddSlider("Volume", 0f, 100f, 50f, value => { /* ... */ }, "0");
+    t.AddDropdown("Mode", new[] { "Easy", "Normal", "Hard" }, 1, index => { /* ... */ });
+    t.AddButton("Apply", "Apply", Apply);
+});
+```
+
+Each row keeps its current value and callback across scene changes; only the native visual is rebuilt. `SettingsRow` exposes `SetValue`, `SetEnabled` and `SetVisible`. `SettingsTabHandle.Select()` opens the added tab if the settings screen is available. The tab title and content are real clones of the game's own tabs and setting containers.
+
+The `Settings` API also declares the built-in `SettingsTab` enum (`Video`, `Audio`, `Input`, `Game`, `Lobby`) for code that needs to refer to the existing tabs; adding rows to those tabs is intentionally not supported yet.
+
+### Scoreboard and rules
+
+`Native.Scoreboard` and `Native.Rules` are reserved API surfaces. Scoreboard callback columns and the Rules civilization catalogue are the next native integrations; they are not implemented yet.
+
+## Theme
+
+`scope.Custom.Theme` is the shared read-only view of the game's look:
+
+```csharp
+var theme = _ui.Custom.Theme;
+
+var font = theme.Font;
+var material = theme.FontMaterial;
+var hammer = theme.Icon("hammer");
+var frame = theme.Ornament(OrnamentStyle.Classic);
+var sprite = theme.Sprite("Background-3");
+```
+
+Asset scanning is done once by the runtime and invalidated on scene changes. Mods never scan assets.
+
+## What is not here yet
+
+* `Native.Scoreboard` callback columns and `Native.Rules` civilizations.
+* Editing or removing existing game UI elements. Native additions are add-only for now, but the staging and cloning primitives are ready for future editing support.
+* Diagnostics beyond the built-in demo, automated in-game tests and final docs.
