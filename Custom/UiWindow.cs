@@ -9,7 +9,7 @@ namespace DiceModders.UiKit.Custom;
 /// <summary>
 /// A draggable window with a body, an optional title strip and an optional frame. It is both the builder and the handle.
 /// </summary>
-public sealed class Window : Element {
+public sealed class UiWindow : UiElement {
     public const float DefaultWidth = 400f;
     public const float DefaultHeight = 260f;
     public const float Padding = 16f;
@@ -20,16 +20,16 @@ public sealed class Window : Element {
     private const float TitleGap = 6f;
 
     private readonly UiScope _scope;
-    private readonly Container _body;
-    private readonly UIImage _background;
-    private readonly UIImage _ornament;
+    private readonly UiContainer _body = null!;
+    private readonly UIImage _background = null!;
+    private readonly UIImage _ornament = null!;
 
-    private Container _titleButtons;
-    private RectTransform _titleStrip;
-    private TextMeshProUGUI _titleText;
-    private Button _closeButton;
-    private WindowDragHandler _drag;
-    private Action _onClose;
+    private UiContainer? _titleButtons;
+    private RectTransform? _titleStrip;
+    private TextMeshProUGUI? _titleText;
+    private UiButton? _closeButton;
+    private WindowDragHandler? _drag;
+    private Action? _onClose;
 
     private Layer _layer;
     private OrnamentStyle _ornamentStyle = OrnamentStyle.Border;
@@ -50,13 +50,15 @@ public sealed class Window : Element {
     private Vector2 _normalSize;
     private bool _hasNormal;
 
-    internal Window(UiScope scope) : base(CreateRoot(scope)) {
+    internal UiWindow(UiScope scope) : base(CreateRoot(scope)) {
         _scope = scope;
         _layer = scope.Runtime.Options.DefaultLayer;
 
         try {
             var theme = scope.Runtime.Theme;
-            _background = Root.gameObject.AddComponent<UIImage>();
+            var root = Root;
+            if (root == null) throw new InvalidOperationException("window root is unavailable");
+            _background = root.gameObject.AddComponent<UIImage>();
             _background.sprite = theme.Panel;
             _background.type = _background.sprite != null ? UIImage.Type.Sliced : UIImage.Type.Simple;
             _background.color = _background.sprite != null ? Color.white : new Color(0.12f, 0.10f, 0.08f, 0.98f);
@@ -77,10 +79,12 @@ public sealed class Window : Element {
     }
 
     private static RectTransform CreateRoot(UiScope scope) {
-        RectTransform root = null;
+        RectTransform? root = null;
         try {
             var layer = scope.Runtime.Options.DefaultLayer;
-            root = UiFactory.NewRect("DM Window", scope.Runtime.Layers.Get(layer).transform);
+            var canvas = scope.Runtime.Layers.Get(layer);
+            if (canvas == null) throw new InvalidOperationException("window layer canvas is unavailable");
+            root = UiFactory.NewRect("DM Window", canvas.transform);
             root.anchorMin = root.anchorMax = new Vector2(0f, 1f);
             root.pivot = new Vector2(0f, 1f);
             return root;
@@ -91,7 +95,7 @@ public sealed class Window : Element {
         }
     }
 
-    private Container BuildBody(UiTheme theme) {
+    private UiContainer BuildBody(UiTheme theme) {
         var rect = UiFactory.NewRect("DM Body", Root);
         rect.anchorMin = Vector2.zero;
         rect.anchorMax = Vector2.one;
@@ -108,7 +112,7 @@ public sealed class Window : Element {
         layout.childForceExpandWidth = true;
         layout.childForceExpandHeight = false;
 
-        return new Container(rect, layout, theme, _scope.Runtime);
+        return new UiContainer(rect, layout, theme, _scope.Runtime);
     }
 
     private UIImage BuildOrnament(UiTheme theme) {
@@ -123,13 +127,13 @@ public sealed class Window : Element {
         return image;
     }
 
-    public Container Body => _body;
+    public UiContainer Body => _body;
     public Layer CurrentLayer => _layer;
     public bool IsVisible => IsAlive && Root != null && Root.gameObject.activeSelf;
     public bool IsFullscreen => _fullscreen;
     public bool CanFullscreen => _fullscreenable;
 
-    public Container? TitleBar {
+    public UiContainer? TitleBar {
         get {
             if (!IsAlive) return null;
             EnsureTitle();
@@ -137,14 +141,14 @@ public sealed class Window : Element {
         }
     }
 
-    public Window Title(string? text) {
+    public UiWindow Title(string? text) {
         if (!IsAlive) return this;
         EnsureTitle();
         if (_titleText != null) _titleText.text = text ?? string.Empty;
         return this;
     }
 
-    public Window Size(float width, float height) {
+    public UiWindow Size(float width, float height) {
         if (!IsAlive) return this;
 
         _width = Mathf.Max(MinWidth, UiGuard.Finite(width, DefaultWidth));
@@ -153,7 +157,7 @@ public sealed class Window : Element {
         return this;
     }
 
-    public Window Position(float x, float y) {
+    public UiWindow Position(float x, float y) {
         if (!IsAlive) return this;
 
         _position = new Vector2(UiGuard.Finite(x, 0f), UiGuard.Finite(y, 0f));
@@ -161,7 +165,7 @@ public sealed class Window : Element {
         return this;
     }
 
-    public Window Center() {
+    public UiWindow Center() {
         if (!IsAlive || Root == null) return this;
 
         UiGuard.Run("window.center", () => {
@@ -176,7 +180,7 @@ public sealed class Window : Element {
         return this;
     }
 
-    public Window Layer(Layer layer) {
+    public UiWindow Layer(Layer layer) {
         if (!IsAlive || Root == null || _layer == layer) return this;
 
         var position = Root.anchoredPosition;
@@ -212,7 +216,7 @@ public sealed class Window : Element {
         return this;
     }
 
-    public Window SortingOrder(int order) {
+    public UiWindow SortingOrder(int order) {
         if (!IsAlive) return this;
 
         _sortingOrder = order;
@@ -221,20 +225,20 @@ public sealed class Window : Element {
         return this;
     }
 
-    public Window Draggable(bool on = true) {
+    public UiWindow Draggable(bool on = true) {
         if (!IsAlive) return this;
         _draggable = on;
         ApplyDraggable();
         return this;
     }
 
-    public Window Fullscreenable(bool on = true) {
+    public UiWindow Fullscreenable(bool on = true) {
         if (!IsAlive) return this;
         _fullscreenable = on;
         return this;
     }
 
-    public Window Closable(bool on = true) {
+    public UiWindow Closable(bool on = true) {
         if (!IsAlive) return this;
         EnsureTitle();
         if (_titleButtons == null) return this;
@@ -262,7 +266,7 @@ public sealed class Window : Element {
         return this;
     }
 
-    public Window Ornament(OrnamentStyle style) {
+    public UiWindow Ornament(OrnamentStyle style) {
         if (!IsAlive) return this;
         _ornamentStyle = style;
         if (_ornament == null) return this;
@@ -273,7 +277,7 @@ public sealed class Window : Element {
         return this;
     }
 
-    public Window OnClose(Action? action) {
+    public UiWindow OnClose(Action? action) {
         _onClose = action;
         return this;
     }
@@ -416,9 +420,11 @@ public sealed class Window : Element {
         _titleText.overflowMode = TextOverflowModes.Ellipsis;
 
         var titleLayout = UiFactory.Layout(_titleText.rectTransform);
-        titleLayout.minWidth = 0f;
-        titleLayout.preferredWidth = 0f;
-        titleLayout.flexibleWidth = 1f;
+        if (titleLayout != null) {
+            titleLayout.minWidth = 0f;
+            titleLayout.preferredWidth = 0f;
+            titleLayout.flexibleWidth = 1f;
+        }
 
         var watcher = _titleText.gameObject.AddComponent<WidthWatcher>();
         watcher.Bind(_titleText);
@@ -433,9 +439,9 @@ public sealed class Window : Element {
         buttonLayout.childForceExpandHeight = true;
 
         var buttonsElement = UiFactory.Layout(buttons);
-        buttonsElement.flexibleWidth = 0f;
+        if (buttonsElement != null) buttonsElement.flexibleWidth = 0f;
 
-        _titleButtons = new Container(buttons, buttonLayout, _scope.Runtime.Theme, _scope.Runtime, textSizedButtons: true);
+        _titleButtons = new UiContainer(buttons, buttonLayout, _scope.Runtime.Theme, _scope.Runtime, textSizedButtons: true);
         _titleButtons.ChildAdded = EnsureCloseLast;
         SetBodyTop();
     }

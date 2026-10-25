@@ -19,56 +19,50 @@ namespace DiceModders.UiKit.Native;
 /// A tab added to the game's Settings screen. It is owned by the creating scope but lives in the game's shared settings
 /// hierarchy, so every mod and the game itself see it as a normal tab.
 /// </summary>
-public sealed class SettingsTabHandle : IDisposable {
+public sealed class SettingsTabHandle : NativeHandle {
     private const float LabelInputGap = 40f;
     private const float SliderWidth = 400f;
 
     private readonly UiScope _scope;
-    private readonly NativeUiHost _host;
     private readonly Action<SettingsTabHandle> _onDispose;
-    private readonly List<SettingsRow> _rows = new();
+    private readonly List<SettingsRowHandle> _rows = new();
 
     private SettingsTabView? _view;
-    private bool _disposed;
-    private bool _detachedForScene;
 
     internal SettingsTabHandle(UiScope scope, NativeUiHost host, string id, string title,
-                               Action<SettingsTabHandle> onDispose) {
+                               Action<SettingsTabHandle> onDispose)
+        : base(scope, host, id) {
         _scope = scope;
-        _host = host;
         _onDispose = onDispose;
-        Id = id;
         Title = title;
     }
 
-    public string Id { get; }
     public string Title { get; }
-    public bool IsAlive => !_disposed && !_detachedForScene && _view != null && _view.IsAlive;
-    internal bool IsDisposed => _disposed;
+    private bool HasView => _view != null && _view.IsAlive;
 
     /// <summary>Selects this tab if the settings screen is currently available.</summary>
     public void Select() {
-        if (_disposed) return;
+        if (IsDisposed) return;
         UiGuard.Run("settings.select", () => _view?.Select(), _scope.Id);
     }
 
-    public SettingsRow? AddHeader(string? text) {
+    public SettingsRowHandle? AddHeader(string? text) {
         var row = NewRow(SettingsRowKind.Header, text);
         if (row == null) return null;
-        if (IsAlive) BuildRow(row);
+        if (HasView) BuildRow(row);
         return row;
     }
 
-    public SettingsRow? AddToggle(string? label, bool value, Action<bool>? changed) {
+    public SettingsRowHandle? AddToggle(string? label, bool value, Action<bool>? changed) {
         var row = NewRow(SettingsRowKind.Toggle, label);
         if (row == null) return null;
         row.BoolValue = value;
         row.BoolChanged = changed;
-        if (IsAlive) BuildRow(row);
+        if (HasView) BuildRow(row);
         return row;
     }
 
-    public SettingsRow? AddSlider(string? label, float min, float max, float value, Action<float>? changed,
+    public SettingsRowHandle? AddSlider(string? label, float min, float max, float value, Action<float>? changed,
                                   string? format = "0.##") {
         var row = NewRow(SettingsRowKind.Slider, label);
         if (row == null) return null;
@@ -78,11 +72,11 @@ public sealed class SettingsTabHandle : IDisposable {
         row.FloatValue = Mathf.Clamp(UiGuard.Finite(value, row.Min), row.Min, row.Max);
         row.Format = SafeFormat(format);
         row.FloatChanged = changed;
-        if (IsAlive) BuildRow(row);
+        if (HasView) BuildRow(row);
         return row;
     }
 
-    public SettingsRow? AddDropdown(string? label, IEnumerable<string>? options, int index, Action<int>? changed) {
+    public SettingsRowHandle? AddDropdown(string? label, IEnumerable<string>? options, int index, Action<int>? changed) {
         var row = NewRow(SettingsRowKind.Dropdown, label);
         if (row == null) return null;
         try { row.Options = Normalize(options); }
@@ -92,44 +86,56 @@ public sealed class SettingsTabHandle : IDisposable {
         }
         row.Index = Mathf.Clamp(index, 0, Mathf.Max(0, row.Options.Count - 1));
         row.IntChanged = changed;
-        if (IsAlive) BuildRow(row);
+        if (HasView) BuildRow(row);
         return row;
     }
 
-    public SettingsRow? AddButton(string? label, string? buttonText, Action? clicked) {
+    public SettingsRowHandle? AddButton(string? label, string? buttonText, Action? clicked) {
         var row = NewRow(SettingsRowKind.Button, label);
         if (row == null) return null;
         row.ButtonText = string.IsNullOrWhiteSpace(buttonText) ? "Open" : buttonText;
         row.Clicked = clicked;
-        if (IsAlive) BuildRow(row);
+        if (HasView) BuildRow(row);
         return row;
     }
 
-    private SettingsRow? NewRow(SettingsRowKind kind, string? label) {
-        if (_disposed) {
+    private SettingsRowHandle? NewRow(SettingsRowKind kind, string? label) {
+        if (IsDisposed) {
             UiLog.OnceError("settings:disposed", "cannot add a settings row to a disposed tab");
             return null;
         }
-        var row = new SettingsRow(this, kind, label);
+        var row = new SettingsRowHandle(this, kind, label);
         _rows.Add(row);
         return row;
     }
 
-    internal void Refresh(GameSettings? settings) {
-        if (_disposed) return;
+    internal override void Refresh(NativeScene scene) {
+        if (IsDisposed || State == NativeState.Unsupported) return;
 
+        var settings = scene.Settings;
         if (_view != null) {
-            if (!_detachedForScene && settings != null && _view.IsAlive && _view.Settings == settings) return;
-            Detach();
+            if (settings != null && _view.IsAlive && _view.Settings == settings) {
+                MarkAttached("settings");
+                return;
+            }
+            DetachCore();
         }
 
-        if (settings == null) return;
+        if (settings == null) {
+            MarkWaiting("waiting for the Settings screen");
+            return;
+        }
 
         try { Attach(settings); }
         catch (Exception e) {
             UiGuard.Report("settings.attach", e, _scope.Id);
-            Detach();
+            DetachCore();
+            MarkFailed("settings tab could not be attached");
+            return;
         }
+
+        if (HasView) MarkAttached("settings");
+        else MarkFailed(Status ?? "settings UI templates are unavailable");
     }
 
     private void Attach(GameSettings settings) {
@@ -207,10 +213,11 @@ public sealed class SettingsTabHandle : IDisposable {
             AppendTab(tabArea, tabTitle, pageRt);
             _view = view;
             foreach (var row in _rows) BuildRow(row);
+            MarkAttached("settings");
         }
         catch {
             if (_view != null) {
-                Detach();
+                DetachCore();
             }
             else {
                 // AppendTab may have partially registered the tab before throwing. RemoveTab checks the current
@@ -221,7 +228,7 @@ public sealed class SettingsTabHandle : IDisposable {
         }
     }
 
-    private void BuildRow(SettingsRow row) {
+    private void BuildRow(SettingsRowHandle row) {
         var tabView = _view;
         if (tabView == null || !tabView.IsAlive || row == null) return;
 
@@ -244,7 +251,7 @@ public sealed class SettingsTabHandle : IDisposable {
         }
     }
 
-    private SettingsRowView? BuildVisual(SettingsRow row, SettingsTabView tabView) {
+    private SettingsRowView? BuildVisual(SettingsRowHandle row, SettingsTabView tabView) {
         var runtime = _scope.Runtime;
         var holder = tabView.Holder;
 
@@ -300,7 +307,8 @@ public sealed class SettingsTabHandle : IDisposable {
                         }));
                     if (toggle != null) {
                         view.Toggle = toggle;
-                        var toggleRt = toggle.Go.GetComponent<RectTransform>();
+                        var toggleGo = toggle.Go;
+                        var toggleRt = toggleGo != null ? toggleGo.GetComponent<RectTransform>() : null;
                         SetControlSize(toggleRt, 28f, 28f, false);
                         AlignControlLeft(toggleRt);
                     }
@@ -377,7 +385,7 @@ public sealed class SettingsTabHandle : IDisposable {
         }
     }
 
-    private static void SetControlSize(RectTransform rt, float width, float height, bool flexibleWidth) {
+    private static void SetControlSize(RectTransform? rt, float width, float height, bool flexibleWidth) {
         if (rt == null) return;
         var layout = UiFactory.Layout(rt);
         if (layout != null) {
@@ -411,14 +419,14 @@ public sealed class SettingsTabHandle : IDisposable {
     }
 
     /// <summary>All settings inputs share one left edge, regardless of their donor prefab's anchors.</summary>
-    private static void AlignControlLeft(RectTransform rt) {
+    private static void AlignControlLeft(RectTransform? rt) {
         if (rt == null) return;
         rt.anchorMin = rt.anchorMax = new Vector2(0f, 0.5f);
         rt.pivot = new Vector2(0f, 0.5f);
         rt.anchoredPosition = Vector2.zero;
     }
 
-    private static Transform FindTitleTemplate(Transform titlesRoot) {
+    private static Transform? FindTitleTemplate(Transform titlesRoot) {
         if (titlesRoot == null) return null;
         for (int i = 0; i < titlesRoot.childCount; i++) {
             var child = titlesRoot.GetChild(i);
@@ -427,7 +435,7 @@ public sealed class SettingsTabHandle : IDisposable {
         return null;
     }
 
-    private static GameSettingSet FindPageTemplate(Transform contentsRoot, GameSettings settings) {
+    private static GameSettingSet? FindPageTemplate(Transform? contentsRoot, GameSettings settings) {
         if (contentsRoot != null) {
             for (int i = 0; i < contentsRoot.childCount; i++) {
                 var page = contentsRoot.GetChild(i).GetComponent<GameSettingSet>();
@@ -437,7 +445,7 @@ public sealed class SettingsTabHandle : IDisposable {
         return settings.game ?? settings.video ?? settings.audio ?? settings.input;
     }
 
-    private static RectTransform FindHolder(Transform page) {
+    private static RectTransform? FindHolder(Transform? page) {
         if (page == null) return null;
         var scroll = page.Find("Vertical Scroll");
         var viewport = scroll != null ? scroll.Find("Viewport") : null;
@@ -468,7 +476,9 @@ public sealed class SettingsTabHandle : IDisposable {
         var old = tabArea.tabs;
         int count = old != null ? old.Length : 0;
         var next = new Il2CppReferenceArray<GameTabArea.TabDefinition>(count + 1);
-        for (int i = 0; i < count; i++) next[i] = old[i];
+        if (old != null) {
+            for (int i = 0; i < count; i++) next[i] = old[i];
+        }
         next[count] = new GameTabArea.TabDefinition { title = title, content = content };
         tabArea.tabs = next;
 
@@ -482,7 +492,7 @@ public sealed class SettingsTabHandle : IDisposable {
         }
     }
 
-    private static void RemoveTab(GameTabArea tabArea, GameTabTitle title, GameObject titleGo, GameObject pageGo) {
+    private static void RemoveTab(GameTabArea? tabArea, GameTabTitle? title, GameObject? titleGo, GameObject? pageGo) {
         try {
             if (tabArea != null) {
                 var old = tabArea.tabs;
@@ -536,46 +546,30 @@ public sealed class SettingsTabHandle : IDisposable {
         }
     }
 
-    private void Detach() {
+    protected override void DetachCore() {
         var view = _view;
         _view = null;
-        _detachedForScene = false;
         if (view == null) return;
 
         for (int i = 0; i < _rows.Count; i++) _rows[i].ResetView();
         UiGuard.Run("settings.detach", view.Dispose, _scope.Id);
     }
 
-    /// <summary>
-    /// Scene teardown: keep the old native references until the next settings refresh, then remove them before attaching
-    /// a fresh tab. Dropping them here can leave a duplicate registration in a settings screen that survives a scene.
-    /// </summary>
-    internal void DetachForSceneChange() {
-        if (_view == null) return;
-        for (int i = 0; i < _rows.Count; i++) _rows[i].ResetView();
-        _detachedForScene = true;
-    }
-
     private void MissingTemplate() {
+        MarkFailed("settings UI templates are unavailable");
         UiLog.OnceError("settings:no-template:" + Id,
-            "settings UI templates are unavailable; the tab will be retried on the next scene");
+            "settings UI templates are unavailable; the tab will be retried");
     }
 
-    public void Dispose() {
-        if (_disposed) return;
-        _disposed = true;
-
-        UiGuard.Run("settings.detach", Detach, _scope.Id);
-        UiGuard.Run("settings.unregister", () => _host.RemoveSettingsTab(this), _scope.Id);
+    protected override void DisposeCore() {
         UiGuard.Run("settings.on-dispose", () => _onDispose?.Invoke(this), _scope.Id);
-        UiGuard.Run("settings.untrack", () => _scope.RemoveOwned(this), _scope.Id);
     }
 
     internal sealed class SettingsTabView {
         private readonly GameTabArea _tabArea;
         private readonly GameObject _titleGo;
         private readonly GameObject _pageGo;
-        private readonly GameTabTitle _title;
+        private readonly GameTabTitle? _title;
 
         public SettingsTabView(GameSettings settings, GameTabArea tabArea, GameObject titleGo, GameObject pageGo,
                                RectTransform holder, GameSettingEntry entryPrefab, GameLabel? headerPrefab,

@@ -5,6 +5,7 @@ using DiceModders.UiKit.Custom;
 using DiceModders.UiKit.Native;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.Injection;
+using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
 
@@ -19,6 +20,7 @@ internal sealed class UiKitRuntime {
     private UnityAction<Scene, LoadSceneMode>? _sceneLoaded;
     private UnityAction<Scene>? _sceneUnloaded;
     private DemoController? _demo;
+    private GameObject? _pumpObject;
     private int _windowIndex;
     private int _scopeIndex;
     private bool _disposed;
@@ -34,6 +36,8 @@ internal sealed class UiKitRuntime {
         NativeUi = new NativeUiHost();
 
         RegisterComponents();
+        NativeHooks.Install(this);
+        SpawnPump();
 
         try {
             Action<Scene, LoadSceneMode> loaded = OnSceneLoaded;
@@ -140,11 +144,40 @@ internal sealed class UiKitRuntime {
         Register<AutoHeightText>();
         Register<WidthWatcher>();
         Register<ScrollPin>();
+        Register<NativeRetryPump>();
     }
 
     private static void Register<T>() where T : class {
         try { ClassInjector.RegisterTypeInIl2Cpp<T>(); }
         catch (Exception e) { UiLog.Warn($"could not register {typeof(T).Name}: {e.Message}"); }
+    }
+
+    private void SpawnPump() {
+        GameObject? go = null;
+        try {
+            go = new GameObject("DiceModders UiKit");
+            go.hideFlags = HideFlags.HideAndDontSave;
+            UnityEngine.Object.DontDestroyOnLoad(go);
+            var pump = go.AddComponent<NativeRetryPump>();
+            if (pump == null) throw new InvalidOperationException("the retry component was not created");
+            pump.Init(this);
+            _pumpObject = go;
+        }
+        catch (Exception e) {
+            if (go != null) {
+                try { UnityEngine.Object.Destroy(go); }
+                catch { /* best effort during teardown */ }
+            }
+            UiLog.Warn("could not create the native retry pump: " + e.Message);
+        }
+    }
+
+    private void DestroyPump() {
+        var go = _pumpObject;
+        _pumpObject = null;
+        if (go == null) return;
+        try { UnityEngine.Object.Destroy(go); }
+        catch (Exception e) { UiLog.Warn("could not destroy the native retry pump: " + e.Message); }
     }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode) {
@@ -186,6 +219,8 @@ internal sealed class UiKitRuntime {
         _demo = null;
         if (demo != null) UiGuard.Run("demo.dispose", demo.Dispose, "runtime");
 
+        UiGuard.Run("native.hooks", NativeHooks.Uninstall, "runtime");
+        UiGuard.Run("native.pump", DestroyPump, "runtime");
         UiGuard.Run("native.dispose", NativeUi.Dispose, "runtime");
 
         var scopes = _scopes.ToArray();

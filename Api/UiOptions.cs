@@ -5,7 +5,7 @@ internal sealed class UiOptions {
     /// <summary>How custom widgets are dressed. Native-first with a managed fallback by default.</summary>
     public TemplatePolicy Templates { get; init; } = TemplatePolicy.PreferNative;
 
-    /// <summary>The layer used by windows that do not call <c>Window.Layer(...)</c>.</summary>
+    /// <summary>The layer used by windows that do not call <c>UiWindow.Layer(...)</c>.</summary>
     public Layer DefaultLayer { get; init; } = Layer.AboveGame;
 
     /// <summary>

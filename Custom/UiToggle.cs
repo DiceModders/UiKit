@@ -12,16 +12,16 @@ namespace DiceModders.UiKit.Custom;
 /// A checkbox with a label. Uses a clone of the game's native boolean setting control when available; otherwise the managed
 /// checkbox is built from the game's sprites.
 /// </summary>
-public sealed class Toggle : Element {
-    private readonly UIImage _check;
-    private readonly TextMeshProUGUI _label;
-    private readonly UButton _button;
-    private readonly Action<bool> _onChanged;
-    private readonly NativeToggle _native;
+public sealed class UiToggle : UiElement {
+    private readonly UIImage? _check;
+    private readonly TextMeshProUGUI? _label;
+    private readonly UButton? _button;
+    private readonly Action<bool>? _onChanged;
+    private readonly NativeToggle? _native;
     private bool _value;
 
-    internal Toggle(RectTransform root, UIImage check, TextMeshProUGUI label, bool value,
-                    Action<bool> onChanged, NativeToggle native = null, UButton button = null) : base(root) {
+    internal UiToggle(RectTransform root, UIImage? check, TextMeshProUGUI? label, bool value,
+                    Action<bool>? onChanged, NativeToggle? native = null, UButton? button = null) : base(root) {
         _check = check;
         _label = label;
         _value = value;
@@ -31,7 +31,7 @@ public sealed class Toggle : Element {
         ApplyValue();
     }
 
-    internal static Toggle? Create(Container parent, string? label, bool value, Action<bool>? onChanged) {
+    internal static UiToggle? Create(UiContainer parent, string? label, bool value, Action<bool>? onChanged) {
         var runtime = parent.Runtime;
 
         if (SkinPolicy.AllowNative(runtime)) {
@@ -39,11 +39,12 @@ public sealed class Toggle : Element {
             NativeToggle? native = null;
 
             try {
-                Toggle? result = null;
+                UiToggle? result = null;
                 native = SkinPolicy.TryNative("toggle", () =>
                     NativeToggle.Create(runtime.Templates, row, value, v => result?.HandleNativeChange(v)));
                 if (native != null) {
-                    var nativeLayout = UiFactory.Layout(native.Go.GetComponent<RectTransform>());
+                    var nativeGo = native.Go;
+                    var nativeLayout = nativeGo != null ? UiFactory.Layout(nativeGo.GetComponent<RectTransform>()) : null;
                     if (nativeLayout != null) {
                         nativeLayout.minWidth = nativeLayout.preferredWidth = 28f;
                         nativeLayout.minHeight = nativeLayout.preferredHeight = 28f;
@@ -54,11 +55,13 @@ public sealed class Toggle : Element {
                     var text = UiFactory.AddText(row, "DM Label", label ?? string.Empty, 16f,
                                                  TextAlignmentOptions.MidlineLeft, parent.Theme);
                     var textLayout = UiFactory.Layout(text.rectTransform);
-                    textLayout.minHeight = textLayout.preferredHeight = 24f;
-                    textLayout.flexibleWidth = 1f;
-                    textLayout.flexibleHeight = 0f;
+                    if (textLayout != null) {
+                        textLayout.minHeight = textLayout.preferredHeight = 24f;
+                        textLayout.flexibleWidth = 1f;
+                        textLayout.flexibleHeight = 0f;
+                    }
 
-                    result = new Toggle(row, null, text, value, onChanged, native);
+                    result = new UiToggle(row, null, text, value, onChanged, native);
                     native.SetChanged(result.HandleNativeChange);
                     return result;
                 }
@@ -76,7 +79,7 @@ public sealed class Toggle : Element {
         return CreateManaged(parent, label, value, onChanged);
     }
 
-    private static Toggle? CreateManaged(Container parent, string? label, bool value, Action<bool>? onChanged) {
+    private static UiToggle? CreateManaged(UiContainer parent, string? label, bool value, Action<bool>? onChanged) {
         var theme = parent.Theme;
         var root = CreateRow(parent);
 
@@ -84,10 +87,12 @@ public sealed class Toggle : Element {
             var box = UiFactory.NewRect("DM Checkbox", root);
             box.sizeDelta = new Vector2(24f, 24f);
             var boxLayout = UiFactory.Layout(box);
-            boxLayout.minWidth = boxLayout.preferredWidth = 24f;
-            boxLayout.minHeight = boxLayout.preferredHeight = 24f;
-            boxLayout.flexibleWidth = 0f;
-            boxLayout.flexibleHeight = 0f;
+            if (boxLayout != null) {
+                boxLayout.minWidth = boxLayout.preferredWidth = 24f;
+                boxLayout.minHeight = boxLayout.preferredHeight = 24f;
+                boxLayout.flexibleWidth = 0f;
+                boxLayout.flexibleHeight = 0f;
+            }
 
             var background = box.gameObject.AddComponent<UIImage>();
             var normal = theme.Button(AssetCatalog.ButtonVariant.Regular, AssetCatalog.ButtonState.Ready);
@@ -128,11 +133,13 @@ public sealed class Toggle : Element {
             var text = UiFactory.AddText(root, "DM Label", label ?? string.Empty, 16f,
                                          TextAlignmentOptions.MidlineLeft, theme);
             var textLayout = UiFactory.Layout(text.rectTransform);
-            textLayout.minHeight = textLayout.preferredHeight = 24f;
-            textLayout.flexibleWidth = 1f;
-            textLayout.flexibleHeight = 0f;
+            if (textLayout != null) {
+                textLayout.minHeight = textLayout.preferredHeight = 24f;
+                textLayout.flexibleWidth = 1f;
+                textLayout.flexibleHeight = 0f;
+            }
 
-            var result = new Toggle(root, check, text, value, onChanged, null, button);
+            var result = new UiToggle(root, check, text, value, onChanged, null, button);
 
             var relay = box.gameObject.AddComponent<ClickRelay>();
             ClickRelayRegistry.Bind(relay, button, result.HandleClick);
@@ -146,7 +153,7 @@ public sealed class Toggle : Element {
         }
     }
 
-    private static RectTransform CreateRow(Container parent) {
+    private static RectTransform CreateRow(UiContainer parent) {
         var root = UiFactory.NewRect("DM Toggle", parent.Root);
         var row = root.gameObject.AddComponent<HorizontalLayoutGroup>();
         row.spacing = 8f;
@@ -158,9 +165,11 @@ public sealed class Toggle : Element {
         row.childForceExpandHeight = false;
 
         var rootLayout = UiFactory.Layout(root);
-        rootLayout.minHeight = rootLayout.preferredHeight = 32f;
-        rootLayout.flexibleWidth = 1f;
-        rootLayout.flexibleHeight = 0f;
+        if (rootLayout != null) {
+            rootLayout.minHeight = rootLayout.preferredHeight = 32f;
+            rootLayout.flexibleWidth = 1f;
+            rootLayout.flexibleHeight = 0f;
+        }
         return root;
     }
 
@@ -168,20 +177,20 @@ public sealed class Toggle : Element {
         ? UiGuard.Value("toggle.value", () => _native.Value, _value)
         : _value;
 
-    public Toggle Set(bool value) {
+    public UiToggle Set(bool value) {
         if (!IsAlive) return this;
         _value = value;
         UiGuard.Run("toggle.set", ApplyValue);
         return this;
     }
 
-    public Toggle Text(string? value) {
+    public UiToggle Text(string? value) {
         if (!IsAlive) return this;
         if (_label != null) UiGuard.Run("toggle.text", () => _label.text = value ?? string.Empty);
         return this;
     }
 
-    public Toggle Interactable(bool on = true) {
+    public UiToggle Interactable(bool on = true) {
         if (!IsAlive) return this;
         if (_native != null) UiGuard.Run("toggle.interactable", () => _native.SetInteractable(on));
         else if (_button != null) UiGuard.Run("toggle.interactable", () => _button.interactable = on);

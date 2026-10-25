@@ -15,17 +15,17 @@ namespace DiceModders.UiKit.Custom;
 internal sealed class WindowDragHandler : MonoBehaviour {
     public WindowDragHandler(IntPtr ptr) : base(ptr) { }
 
-    private RectTransform _root;
+    private RectTransform? _root;
     private float _minVisible = 8f;
     private bool _canDragNow = true;
 
     private bool _dragging;
     private bool _canDrag;
-    private Canvas _canvas;
-    private EventTrigger _trigger;
+    private Canvas? _canvas;
+    private EventTrigger? _trigger;
     private readonly List<UnityAction<BaseEventData>> _keep = new();
 
-    public void Bind(RectTransform root, float minVisible) {
+    public void Bind(RectTransform? root, float minVisible) {
         _root = root;
         _minVisible = minVisible;
         _canDragNow = true;
@@ -34,14 +34,15 @@ internal sealed class WindowDragHandler : MonoBehaviour {
         if (_canvas != null) _canvas = _canvas.rootCanvas;
 
         if (_trigger != null) return;
-        _trigger = gameObject.GetComponent<EventTrigger>() ?? gameObject.AddComponent<EventTrigger>();
-        _trigger.triggers.Clear();
+        var trigger = gameObject.GetComponent<EventTrigger>() ?? gameObject.AddComponent<EventTrigger>();
+        _trigger = trigger;
+        trigger.triggers.Clear();
 
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.PointerDown, EventRelay.ToEvent(OnPointerDown));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.BeginDrag, EventRelay.ToEvent(OnBeginDrag));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.Drag, EventRelay.ToEvent(OnDrag));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.EndDrag, EventRelay.ToEvent(OnEndDrag));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.PointerClick, EventRelay.ToEvent(OnPointerClick));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerDown, EventRelay.ToEvent(OnPointerDown));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.BeginDrag, EventRelay.ToEvent(OnBeginDrag));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.Drag, EventRelay.ToEvent(OnDrag));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.EndDrag, EventRelay.ToEvent(OnEndDrag));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerClick, EventRelay.ToEvent(OnPointerClick));
     }
 
     public void SetCanDrag(bool canDrag) {
@@ -59,21 +60,21 @@ internal sealed class WindowDragHandler : MonoBehaviour {
         return hit.GetComponentInParent<TMP_InputField>() != null;
     }
 
-    private void OnPointerDown(BaseEventData data) {
-        var pointer = data.TryCast<PointerEventData>();
+    private void OnPointerDown(BaseEventData? data) {
+        var pointer = data?.TryCast<PointerEventData>();
         if (pointer == null || pointer.button != PointerEventData.InputButton.Left) return;
 
         WindowDragRegistry.BringToFront(this);
         _canDrag = !IsInteractive(pointer.pointerCurrentRaycast.gameObject);
     }
 
-    private void OnBeginDrag(BaseEventData data) {
-        var pointer = data.TryCast<PointerEventData>();
+    private void OnBeginDrag(BaseEventData? data) {
+        var pointer = data?.TryCast<PointerEventData>();
         _dragging = _canDrag && pointer != null && pointer.button == PointerEventData.InputButton.Left;
     }
 
-    private void OnDrag(BaseEventData data) {
-        var pointer = data.TryCast<PointerEventData>();
+    private void OnDrag(BaseEventData? data) {
+        var pointer = data?.TryCast<PointerEventData>();
         if (!_dragging || _root == null || pointer == null) return;
         if (!_canDragNow) return;
 
@@ -83,12 +84,12 @@ internal sealed class WindowDragHandler : MonoBehaviour {
         _root.anchoredPosition = position;
     }
 
-    private void OnEndDrag(BaseEventData data) {
+    private void OnEndDrag(BaseEventData? data) {
         _dragging = false;
     }
 
-    private void OnPointerClick(BaseEventData data) {
-        var pointer = data.TryCast<PointerEventData>();
+    private void OnPointerClick(BaseEventData? data) {
+        var pointer = data?.TryCast<PointerEventData>();
         if (pointer == null || pointer.button != PointerEventData.InputButton.Left) return;
         if (pointer.clickCount < 2) return;
         if (IsInteractive(pointer.pointerCurrentRaycast.gameObject)) return;

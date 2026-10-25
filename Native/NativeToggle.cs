@@ -10,18 +10,18 @@ namespace DiceModders.UiKit.Native;
 /// nothing is written to the game's settings; the game's own Toggle provides the art, checkmark, click sound and change event.
 /// </summary>
 internal sealed class NativeToggle {
-    public GameObject Go { get; private set; }
-    public GameToggle Game { get; private set; }
+    public GameObject? Go { get; private set; }
+    public GameToggle? Game { get; private set; }
     public bool IsAlive => Go != null && Game != null;
 
     private bool _silent;
-    private Action<bool> _changed;
+    private Action<bool>? _changed;
 
     private NativeToggle() { }
 
     public bool Value => Game != null && Game.Value;
 
-    public static NativeToggle Create(TemplateCatalog templates, Transform parent, bool initial, Action<bool> changed) {
+    public static NativeToggle? Create(TemplateCatalog? templates, Transform? parent, bool initial, Action<bool>? changed) {
         var prefab = templates?.BoolSetting();
         if (prefab == null) return null;
 
@@ -50,13 +50,14 @@ internal sealed class NativeToggle {
 
         Action<bool> handler = toggle.OnChange;
         var native = Il2CppDelegates.ToIl2CppActionBool(handler);
+        if (native == null) { UnityEngine.Object.Destroy(go); return null; }
         game.onChange = native;
-        Il2CppDelegates.Hold(go, new object[] { handler, native });
+        Il2CppDelegates.Hold(go, new object?[] { handler, native });
         toggle.SetSilently(initial);
         return toggle;
     }
 
-    public void SetChanged(Action<bool> changed) => _changed = changed;
+    public void SetChanged(Action<bool>? changed) => _changed = changed;
 
     private void OnChange(bool value) {
         if (_silent) return;

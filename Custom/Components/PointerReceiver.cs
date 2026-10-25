@@ -13,44 +13,45 @@ namespace DiceModders.UiKit.Custom;
 internal sealed class PointerReceiver : MonoBehaviour {
     public PointerReceiver(IntPtr ptr) : base(ptr) { }
 
-    public RectTransform Area;
+    public RectTransform? Area;
 
-    private EventTrigger _trigger;
+    private EventTrigger? _trigger;
     private readonly List<UnityAction<BaseEventData>> _keep = new();
 
-    public void Bind(RectTransform area) {
+    public void Bind(RectTransform? area) {
         Area = area;
         if (_trigger != null) return;
 
-        _trigger = gameObject.GetComponent<EventTrigger>() ?? gameObject.AddComponent<EventTrigger>();
-        _trigger.triggers.Clear();
+        var trigger = gameObject.GetComponent<EventTrigger>() ?? gameObject.AddComponent<EventTrigger>();
+        _trigger = trigger;
+        trigger.triggers.Clear();
 
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.PointerEnter, EventRelay.ToEvent(OnEnter));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.PointerExit, EventRelay.ToEvent(OnExit));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.PointerDown, EventRelay.ToEvent(OnDown));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.PointerUp, EventRelay.ToEvent(OnUp));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.PointerClick, EventRelay.ToEvent(OnClick));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.BeginDrag, EventRelay.ToEvent(OnBeginDrag));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.Drag, EventRelay.ToEvent(OnDrag));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.EndDrag, EventRelay.ToEvent(OnEndDrag));
-        EventTriggerBinder.Add(_trigger, _keep, EventTriggerType.Scroll, EventRelay.ToEvent(OnScrollEvent));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerEnter, EventRelay.ToEvent(OnEnter));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerExit, EventRelay.ToEvent(OnExit));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerDown, EventRelay.ToEvent(OnDown));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerUp, EventRelay.ToEvent(OnUp));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerClick, EventRelay.ToEvent(OnClick));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.BeginDrag, EventRelay.ToEvent(OnBeginDrag));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.Drag, EventRelay.ToEvent(OnDrag));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.EndDrag, EventRelay.ToEvent(OnEndDrag));
+        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.Scroll, EventRelay.ToEvent(OnScrollEvent));
     }
 
-    private static Camera CameraFor(RectTransform rect) {
+    private static Camera? CameraFor(RectTransform? rect) {
         if (rect == null) return null;
         var canvas = rect.GetComponentInParent<Canvas>();
         canvas = canvas != null ? canvas.rootCanvas : null;
         return canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
     }
 
-    private static float ScaleFor(RectTransform rect) {
+    private static float ScaleFor(RectTransform? rect) {
         if (rect == null) return 1f;
         var canvas = rect.GetComponentInParent<Canvas>();
         canvas = canvas != null ? canvas.rootCanvas : null;
         return canvas != null && canvas.scaleFactor > 0.0001f ? canvas.scaleFactor : 1f;
     }
 
-    private void Raise(int kind, PointerEventData data, int button) {
+    private void Raise(int kind, PointerEventData? data, int button) {
         var handler = PointerRegistry.Pointer(this);
         if (handler == null || Area == null || data == null) return;
 
@@ -64,47 +65,47 @@ internal sealed class PointerReceiver : MonoBehaviour {
             rect.height > 0.001f ? position.y / rect.height : 0f);
         var delta = data.delta / ScaleFor(Area);
 
-        try { handler(new PointerEvent((PointerKind)kind, button, uv, position, delta)); }
+        try { handler(new UiPointerEvent((UiPointerKind)kind, button, uv, position, delta)); }
         catch (Exception e) { UiLog.Error("image pointer handler: " + e); }
     }
 
-    private void OnEnter(BaseEventData data) => Raise((int)PointerKind.Enter, data.TryCast<PointerEventData>(), -1);
-    private void OnExit(BaseEventData data) => Raise((int)PointerKind.Exit, data.TryCast<PointerEventData>(), -1);
+    private void OnEnter(BaseEventData? data) => Raise((int)UiPointerKind.Enter, data?.TryCast<PointerEventData>(), -1);
+    private void OnExit(BaseEventData? data) => Raise((int)UiPointerKind.Exit, data?.TryCast<PointerEventData>(), -1);
 
-    private void OnDown(BaseEventData data) {
-        var pointer = data.TryCast<PointerEventData>();
-        Raise((int)PointerKind.Down, pointer, pointer != null ? (int)pointer.button : -1);
+    private void OnDown(BaseEventData? data) {
+        var pointer = data?.TryCast<PointerEventData>();
+        Raise((int)UiPointerKind.Down, pointer, pointer != null ? (int)pointer.button : -1);
     }
 
-    private void OnUp(BaseEventData data) {
-        var pointer = data.TryCast<PointerEventData>();
-        Raise((int)PointerKind.Up, pointer, pointer != null ? (int)pointer.button : -1);
+    private void OnUp(BaseEventData? data) {
+        var pointer = data?.TryCast<PointerEventData>();
+        Raise((int)UiPointerKind.Up, pointer, pointer != null ? (int)pointer.button : -1);
     }
 
-    private void OnClick(BaseEventData data) {
-        var pointer = data.TryCast<PointerEventData>();
-        Raise((int)PointerKind.Click, pointer, pointer != null ? (int)pointer.button : -1);
+    private void OnClick(BaseEventData? data) {
+        var pointer = data?.TryCast<PointerEventData>();
+        Raise((int)UiPointerKind.Click, pointer, pointer != null ? (int)pointer.button : -1);
     }
 
-    private void OnBeginDrag(BaseEventData data) {
-        var pointer = data.TryCast<PointerEventData>();
-        Raise((int)PointerKind.Drag, pointer, pointer != null ? (int)pointer.button : -1);
+    private void OnBeginDrag(BaseEventData? data) {
+        var pointer = data?.TryCast<PointerEventData>();
+        Raise((int)UiPointerKind.Drag, pointer, pointer != null ? (int)pointer.button : -1);
     }
 
-    private void OnDrag(BaseEventData data) {
-        var pointer = data.TryCast<PointerEventData>();
-        Raise((int)PointerKind.Drag, pointer, pointer != null ? (int)pointer.button : -1);
+    private void OnDrag(BaseEventData? data) {
+        var pointer = data?.TryCast<PointerEventData>();
+        Raise((int)UiPointerKind.Drag, pointer, pointer != null ? (int)pointer.button : -1);
     }
 
-    private void OnEndDrag(BaseEventData data) {
-        var pointer = data.TryCast<PointerEventData>();
-        Raise((int)PointerKind.Up, pointer, pointer != null ? (int)pointer.button : -1);
+    private void OnEndDrag(BaseEventData? data) {
+        var pointer = data?.TryCast<PointerEventData>();
+        Raise((int)UiPointerKind.Up, pointer, pointer != null ? (int)pointer.button : -1);
     }
 
-    private void OnScrollEvent(BaseEventData data) {
+    private void OnScrollEvent(BaseEventData? data) {
         var handler = PointerRegistry.Scroll(this);
         if (handler == null) return;
-        var pointer = data.TryCast<PointerEventData>();
+        var pointer = data?.TryCast<PointerEventData>();
         if (pointer == null) return;
         try { handler(pointer.scrollDelta.y); }
         catch (Exception e) { UiLog.Error("image scroll handler: " + e); }

@@ -2,7 +2,12 @@ using System;
 using System.Collections.Generic;
 using DiceModders.UiKit.Custom;
 using DiceModders.UiKit.Native;
+using Il2CppInterop.Runtime;
 using UnityEngine;
+using GameCivilization = DiceKingdoms.Interface.Civilization;
+using GameIsland = DiceKingdoms.Game.Island;
+using GameTechnologies = DiceKingdoms.Game.Technologies;
+using GameTechTree = DiceKingdoms.Game.TechTree;
 
 namespace DiceModders.UiKit;
 
@@ -14,9 +19,10 @@ internal sealed class DemoController {
     private const string DemoScopeId = "dicemodders.uikit.demo";
 
     private readonly UiKitRuntime _runtime;
-    private readonly List<Window> _windows = new();
+    private readonly List<UiWindow> _windows = new();
     private UiScope? _scope;
-    private Window? _main;
+    private UiWindow? _main;
+    private ScoreboardColumnHandle? _scoreboard;
     private bool _requested;
     private bool _visible;
     private bool _built;
@@ -67,7 +73,10 @@ internal sealed class DemoController {
             // The canvas found during sceneLoaded can still be the previous scene's. Now that the game's bar exists,
             // re-read its render mode and sorting orders before building or keeping the demo on screen.
             _runtime.Layers.Refresh();
-            if (_built && _main != null && _main.IsAlive) return;
+            if (_built && _main != null && _main.IsAlive) {
+                RefreshDemoScoreboard();
+                return;
+            }
             DestroyScope();
             Build();
         }
@@ -100,6 +109,7 @@ internal sealed class DemoController {
             BuildMain();
             scope.Native.TopBar.AddIconButton("hammer", "UiKit demo", Toggle);
             BuildDemoSettings();
+            BuildNativeDemo(scope);
             BuildProbe(Layer.Game, "This window is on Layer.Game. It should sit in the HUD band, below the game's popups.",
                        new Vector2(700f, 80f), OrnamentStyle.BorderWithTwoCorners);
             BuildProbe(Layer.BehindGame, "This window is on Layer.BehindGame. The game's own UI should draw over it.",
@@ -114,9 +124,11 @@ internal sealed class DemoController {
     }
 
     private void BuildMain() {
-        Text status = null;
+        var scope = _scope;
+        if (scope == null) return;
+        UiText? status = null;
 
-        _main = _scope.Custom.Window(w => {
+        _main = scope.Custom.Window(w => {
             w.Title("UiKit demo")
              .Size(620f, 640f)
              .Position(80f, 80f)
@@ -194,6 +206,50 @@ internal sealed class DemoController {
         });
     }
 
+    private void BuildNativeDemo(UiScope scope) {
+        _scoreboard = scope.Native.Scoreboard.AddColumn("uikit.demo.score", "UiKit demo column");
+        RefreshDemoScoreboard();
+
+        var tree = FindDemoTree();
+        if (tree == null) {
+            UiLog.Info("demo: no game tech tree is available, the Rules civilization demo is skipped");
+            return;
+        }
+
+        scope.Native.Rules.AddCivilization("uikit.demo.civ", "UiKit civilization", () => tree, 0);
+    }
+
+    private void RefreshDemoScoreboard() {
+        var column = _scoreboard;
+        if (column == null || column.IsDisposed) return;
+
+        var values = new Dictionary<GameIsland, string>();
+        try {
+            foreach (var island in UnityEngine.Object.FindObjectsOfType<GameIsland>()) {
+                if (island == null || Staging.IsOurs(island.transform)) continue;
+                values[island] = (Math.Abs(island.GetInstanceID()) % 100).ToString();
+            }
+        }
+        catch (Exception e) {
+            UiLog.OnceError("demo:scoreboard", "demo scoreboard values failed: " + e);
+        }
+        column.SetValues(values);
+    }
+
+    private static GameTechTree? FindDemoTree() {
+        try {
+            foreach (var candidate in UnityEngine.Resources.FindObjectsOfTypeAll(Il2CppType.Of<GameTechnologies>())) {
+                var technologies = candidate?.TryCast<GameTechnologies>();
+                if (technologies == null) continue;
+                return technologies.TechTree(GameCivilization.EUROPE);
+            }
+        }
+        catch (Exception e) {
+            UiLog.OnceError("demo:tech-tree", "could not read a game tech tree: " + e);
+        }
+        return null;
+    }
+
     private void BuildProbe(Layer layer, string text, Vector2 position, OrnamentStyle ornament) {
         var scope = _scope;
         if (scope == null) return;
@@ -231,6 +287,7 @@ internal sealed class DemoController {
         _built = false;
         _visible = false;
         _main = null;
+        _scoreboard = null;
         _windows.Clear();
 
         var scope = _scope;

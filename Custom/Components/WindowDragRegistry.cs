@@ -4,16 +4,16 @@ using UnityEngine.Events;
 
 namespace DiceModders.UiKit.Custom;
 
-/// <summary>Window drag callbacks kept outside the injected component.</summary>
+/// <summary>UiWindow drag callbacks kept outside the injected component.</summary>
 internal static class WindowDragRegistry {
     private sealed class Binding {
-        public UnityAction BringToFront;
-        public UnityAction DoubleClick;
+        public UnityAction? BringToFront;
+        public UnityAction? DoubleClick;
     }
 
     private static readonly ConditionalWeakTable<WindowDragHandler, Binding> Table = new();
 
-    public static void Bind(WindowDragHandler handler, Action bringToFront, Action doubleClick) {
+    public static void Bind(WindowDragHandler handler, Action? bringToFront, Action? doubleClick) {
         if (handler == null) return;
 
         Table.Remove(handler);

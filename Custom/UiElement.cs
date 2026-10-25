@@ -5,12 +5,12 @@ using UnityEngine.UI;
 namespace DiceModders.UiKit.Custom;
 
 /// <summary>Base of every custom widget. Owns one RectTransform and can be disposed like the window that contains it.</summary>
-public abstract class Element : IDisposable {
+public abstract class UiElement : IDisposable {
     private RectTransform? _root;
     private LayoutElement? _layout;
     private bool _disposed;
 
-    protected Element(RectTransform root) => _root = root;
+    protected UiElement(RectTransform root) => _root = root;
 
     /// <summary>The widget root, or <c>null</c> after the widget has been disposed.</summary>
     public RectTransform? Root => _root;

@@ -12,7 +12,7 @@ namespace DiceModders.UiKit.Native;
 internal static class Il2CppDelegates {
     private static readonly List<(UnityEngine.Object Owner, object Keep)> Alive = new();
 
-    public static void Hold(UnityEngine.Object owner, object keep) {
+    public static void Hold(UnityEngine.Object? owner, object? keep) {
         if (owner == null || keep == null) return;
         Alive.Add((owner, keep));
     }
@@ -24,18 +24,18 @@ internal static class Il2CppDelegates {
 
     public static void Clear() => Alive.Clear();
 
-    public static Il2CppSystem.Action ToIl2CppAction(Action action)
-        => DelegateSupport.ConvertDelegate<Il2CppSystem.Action>(action);
+    public static Il2CppSystem.Action? ToIl2CppAction(Action? action)
+        => action == null ? null : DelegateSupport.ConvertDelegate<Il2CppSystem.Action>(action);
 
-    public static Il2CppSystem.Action<bool> ToIl2CppActionBool(Action<bool> action)
-        => DelegateSupport.ConvertDelegate<Il2CppSystem.Action<bool>>(action);
+    public static Il2CppSystem.Action<bool>? ToIl2CppActionBool(Action<bool>? action)
+        => action == null ? null : DelegateSupport.ConvertDelegate<Il2CppSystem.Action<bool>>(action);
 
-    public static UnityAction ToUnityAction(Action action)
-        => DelegateSupport.ConvertDelegate<UnityAction>(action);
+    public static UnityAction? ToUnityAction(Action? action)
+        => action == null ? null : DelegateSupport.ConvertDelegate<UnityAction>(action);
 
-    public static UnityAction<int> ToUnityActionInt(Action<int> action)
-        => DelegateSupport.ConvertDelegate<UnityAction<int>>(action);
+    public static UnityAction<int>? ToUnityActionInt(Action<int>? action)
+        => action == null ? null : DelegateSupport.ConvertDelegate<UnityAction<int>>(action);
 
-    public static UnityAction<float> ToUnityActionFloat(Action<float> action)
-        => DelegateSupport.ConvertDelegate<UnityAction<float>>(action);
+    public static UnityAction<float>? ToUnityActionFloat(Action<float>? action)
+        => action == null ? null : DelegateSupport.ConvertDelegate<UnityAction<float>>(action);
 }

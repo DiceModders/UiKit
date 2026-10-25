@@ -9,10 +9,10 @@ namespace DiceModders.UiKit.Custom;
 /// A layout container. Add widgets with the methods below; they are placed by the container's layout group.
 /// Factory methods return <c>null</c> when the container is no longer alive or a widget cannot be created.
 /// </summary>
-public sealed class Container : Element {
+public sealed class UiContainer : UiElement {
     private readonly LayoutGroup _layout;
 
-    internal Container(RectTransform root, LayoutGroup layout, UiTheme theme, UiKitRuntime runtime,
+    internal UiContainer(RectTransform root, LayoutGroup layout, UiTheme theme, UiKitRuntime runtime,
                        bool textSizedButtons = false)
         : base(root) {
         _layout = layout;
@@ -26,27 +26,27 @@ public sealed class Container : Element {
     internal bool TextSizedButtons { get; }
     internal Action? ChildAdded { get; set; }
 
-    public Text? Text(string? text) {
+    public UiText? Text(string? text) {
         if (!EnsureAlive()) return null;
-        return UiGuard.Func("container.text", () => Custom.Text.Create(Root, text, false, Theme));
+        return UiGuard.Func("container.text", () => Custom.UiText.Create(Root, text, false, Theme));
     }
 
-    public Text? Paragraph(string? text) {
+    public UiText? Paragraph(string? text) {
         if (!EnsureAlive()) return null;
-        return UiGuard.Func("container.paragraph", () => Custom.Text.Create(Root, text, true, Theme));
+        return UiGuard.Func("container.paragraph", () => Custom.UiText.Create(Root, text, true, Theme));
     }
 
-    public Button? Button(string? text, Action? onClick = null) {
+    public UiButton? Button(string? text, Action? onClick = null) {
         if (!EnsureAlive()) return null;
-        var button = UiGuard.Func("container.button", () => Custom.Button.Create(this, text, onClick, null, false));
+        var button = UiGuard.Func("container.button", () => Custom.UiButton.Create(this, text, onClick, null, false));
         NotifyChildAdded(button != null);
         return button;
     }
 
-    public Button? IconButton(string? sprite, Action? onClick = null, string? tooltip = null) {
+    public UiButton? IconButton(string? sprite, Action? onClick = null, string? tooltip = null) {
         if (!EnsureAlive()) return null;
         var button = UiGuard.Func("container.icon-button",
-            () => Custom.Button.Create(this, string.Empty, onClick, sprite, true, tooltip));
+            () => Custom.UiButton.Create(this, string.Empty, onClick, sprite, true, tooltip));
         if (button != null) {
             UiGuard.Run("container.icon-button.tooltip", () => button.Tooltip(tooltip));
             NotifyChildAdded(true);
@@ -54,32 +54,32 @@ public sealed class Container : Element {
         return button;
     }
 
-    public Toggle? Toggle(string? label, bool value, Action<bool>? onChanged = null) {
+    public UiToggle? Toggle(string? label, bool value, Action<bool>? onChanged = null) {
         if (!EnsureAlive()) return null;
-        return UiGuard.Func("container.toggle", () => Custom.Toggle.Create(this, label, value, onChanged));
+        return UiGuard.Func("container.toggle", () => Custom.UiToggle.Create(this, label, value, onChanged));
     }
 
-    public Slider? Slider(float min, float max, float value, Action<float>? onChanged = null) {
+    public UiSlider? Slider(float min, float max, float value, Action<float>? onChanged = null) {
         if (!EnsureAlive()) return null;
-        return UiGuard.Func("container.slider", () => Custom.Slider.Create(this, min, max, value, onChanged));
+        return UiGuard.Func("container.slider", () => Custom.UiSlider.Create(this, min, max, value, onChanged));
     }
 
-    public Dropdown? Dropdown(IEnumerable<string>? options, int index = 0, Action<int>? onChanged = null) {
+    public UiDropdown? Dropdown(IEnumerable<string>? options, int index = 0, Action<int>? onChanged = null) {
         if (!EnsureAlive()) return null;
-        return UiGuard.Func("container.dropdown", () => Custom.Dropdown.Create(this, options, index, onChanged));
+        return UiGuard.Func("container.dropdown", () => Custom.UiDropdown.Create(this, options, index, onChanged));
     }
 
-    public Image? Image(Texture? texture = null) {
+    public UiImage? Image(Texture? texture = null) {
         if (!EnsureAlive()) return null;
-        return UiGuard.Func("container.image", () => Custom.Image.Create(this, texture));
+        return UiGuard.Func("container.image", () => Custom.UiImage.Create(this, texture));
     }
 
-    public Scroll? Scroll(Action<Container>? build) {
+    public UiScroll? Scroll(Action<UiContainer>? build) {
         if (!EnsureAlive()) return null;
-        return UiGuard.Func("container.scroll", () => Custom.Scroll.Create(this, build));
+        return UiGuard.Func("container.scroll", () => Custom.UiScroll.Create(this, build));
     }
 
-    public Container? Row(Action<Container>? build) {
+    public UiContainer? Row(Action<UiContainer>? build) {
         return BuildGroup("DM Row", rect => {
             var layout = rect.gameObject.AddComponent<HorizontalLayoutGroup>();
             Configure(layout, horizontal: true);
@@ -87,7 +87,7 @@ public sealed class Container : Element {
         }, build);
     }
 
-    public Container? Column(Action<Container>? build) {
+    public UiContainer? Column(Action<UiContainer>? build) {
         return BuildGroup("DM Column", rect => {
             var layout = rect.gameObject.AddComponent<VerticalLayoutGroup>();
             Configure(layout, horizontal: false);
@@ -95,10 +95,10 @@ public sealed class Container : Element {
         }, build);
     }
 
-    public Container? Grid(int columns, Action<Container>? build)
+    public UiContainer? Grid(int columns, Action<UiContainer>? build)
         => Grid(columns, 100f, 100f, build);
 
-    public Container? Grid(int columns, float cellWidth, float cellHeight, Action<Container>? build) {
+    public UiContainer? Grid(int columns, float cellWidth, float cellHeight, Action<UiContainer>? build) {
         int columnCount = Mathf.Clamp(columns, 1, 100);
         float width = Mathf.Max(0f, UiGuard.Finite(cellWidth, 100f));
         float height = Mathf.Max(0f, UiGuard.Finite(cellHeight, 100f));
@@ -113,17 +113,18 @@ public sealed class Container : Element {
             layout.cellSize = new Vector2(width, height);
 
             var element = UiFactory.Layout(rect);
-            element.flexibleWidth = 1f;
+            if (element != null) element.flexibleWidth = 1f;
             return layout;
         }, build);
     }
 
-    public Container Spacer(float height = 8f) {
+    public UiContainer Spacer(float height = 8f) {
         if (!EnsureAlive()) return this;
 
         UiGuard.Run("container.spacer", () => {
             var rect = UiFactory.NewRect("DM Spacer", Root);
             var element = UiFactory.Layout(rect);
+            if (element == null) return;
             element.minHeight = element.preferredHeight = Mathf.Max(0f, UiGuard.Finite(height, 8f));
             element.flexibleWidth = 0f;
             element.flexibleHeight = 0f;
@@ -131,13 +132,14 @@ public sealed class Container : Element {
         return this;
     }
 
-    public Container Separator() {
+    public UiContainer Separator() {
         if (!EnsureAlive()) return this;
 
         UiGuard.Run("container.separator", () => {
             var image = UiFactory.AddImage(Root, "DM Separator", null, new Color(1f, 1f, 1f, 0.1f), false);
             if (image == null) return;
             var element = UiFactory.Layout(image.rectTransform);
+            if (element == null) return;
             element.minHeight = element.preferredHeight = 1f;
             element.flexibleWidth = 1f;
             element.flexibleHeight = 0f;
@@ -145,7 +147,7 @@ public sealed class Container : Element {
         return this;
     }
 
-    public Container Spacing(float spacing) {
+    public UiContainer Spacing(float spacing) {
         if (!EnsureAlive()) return this;
 
         UiGuard.Run("container.spacing", () => {
@@ -157,9 +159,9 @@ public sealed class Container : Element {
         return this;
     }
 
-    public Container Padding(float all) => Padding(all, all);
+    public UiContainer Padding(float all) => Padding(all, all);
 
-    public Container Padding(float horizontal, float vertical) {
+    public UiContainer Padding(float horizontal, float vertical) {
         if (!EnsureAlive()) return this;
 
         UiGuard.Run("container.padding", () => {
@@ -174,7 +176,7 @@ public sealed class Container : Element {
         return this;
     }
 
-    public Container Columns(int columns) {
+    public UiContainer Columns(int columns) {
         if (!EnsureAlive()) return this;
 
         UiGuard.Run("container.columns", () => {
@@ -186,7 +188,7 @@ public sealed class Container : Element {
         return this;
     }
 
-    public Container CellSize(float width, float height) {
+    public UiContainer CellSize(float width, float height) {
         if (!EnsureAlive()) return this;
 
         UiGuard.Run("container.cell-size", () => {
@@ -199,12 +201,14 @@ public sealed class Container : Element {
     }
 
     /// <summary>Removes all child objects added through this container.</summary>
-    public Container Clear() {
+    public UiContainer Clear() {
         if (!EnsureAlive()) return this;
 
         UiGuard.Run("container.clear", () => {
-            for (int i = Root.childCount - 1; i >= 0; i--) {
-                var child = Root.GetChild(i);
+            var root = Root;
+            if (root == null) return;
+            for (int i = root.childCount - 1; i >= 0; i--) {
+                var child = root.GetChild(i);
                 if (child != null) UiFactory.Destroy(child.gameObject);
             }
         });
@@ -212,24 +216,25 @@ public sealed class Container : Element {
     }
 
     /// <summary>Removes one element if it currently belongs to this container.</summary>
-    public Container Remove(Element? element) {
+    public UiContainer Remove(UiElement? element) {
         if (element == null || !IsAlive) return this;
 
         UiGuard.Run("container.remove", () => {
             var root = element.Root;
-            if (root != null && root.IsChildOf(Root)) element.Dispose();
+            var self = Root;
+            if (root != null && self != null && root.IsChildOf(self)) element.Dispose();
         });
         return this;
     }
 
-    private Container? BuildGroup(string name, Func<RectTransform, LayoutGroup> createLayout, Action<Container>? build) {
+    private UiContainer? BuildGroup(string name, Func<RectTransform, LayoutGroup> createLayout, Action<UiContainer>? build) {
         if (!EnsureAlive()) return null;
 
         RectTransform? rect = null;
         try {
             rect = UiFactory.NewRect(name, Root);
             var layout = createLayout(rect);
-            var container = new Container(rect, layout, Theme, Runtime);
+            var container = new UiContainer(rect, layout, Theme, Runtime);
             build?.Invoke(container);
             return container.IsAlive ? container : null;
         }

@@ -17,7 +17,7 @@ internal static class UiGuard {
         }
     }
 
-    public static T? Func<T>(string operation, Func<T>? action, string? scope = null) where T : class {
+    public static T? Func<T>(string operation, Func<T>? action, string? scope = null) where T : class? {
         if (action == null) return null;
         try {
             return action();

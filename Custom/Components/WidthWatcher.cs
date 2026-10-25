@@ -12,10 +12,10 @@ namespace DiceModders.UiKit.Custom;
 internal sealed class WidthWatcher : MonoBehaviour {
     public WidthWatcher(IntPtr ptr) : base(ptr) { }
 
-    private TMP_Text _text;
+    private TMP_Text? _text;
     private float _lastWidth = -1f;
 
-    public void Bind(TMP_Text text) => _text = text;
+    public void Bind(TMP_Text? text) => _text = text;
 
     private void OnEnable() {
         _lastWidth = -1f;

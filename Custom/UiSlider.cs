@@ -13,19 +13,19 @@ namespace DiceModders.UiKit.Custom;
 /// A slider with a value label. Uses a clone of the game's native float setting control when available; otherwise a managed
 /// slider is built from the game's sprites.
 /// </summary>
-public sealed class Slider : Element {
-    private readonly USlider _slider;
-    private readonly TMP_Text _label;
-    private readonly Action<float> _onChanged;
+public sealed class UiSlider : UiElement {
+    private readonly USlider? _slider;
+    private readonly TMP_Text? _label;
+    private readonly Action<float>? _onChanged;
     private string _format = "0.##";
 
-    internal Slider(RectTransform root, USlider slider, TMP_Text label, Action<float> onChanged) : base(root) {
+    internal UiSlider(RectTransform root, USlider? slider, TMP_Text? label, Action<float>? onChanged) : base(root) {
         _slider = slider;
         _label = label;
         _onChanged = onChanged;
     }
 
-    internal static Slider? Create(Container parent, float min, float max, float value, Action<float>? onChanged) {
+    internal static UiSlider? Create(UiContainer parent, float min, float max, float value, Action<float>? onChanged) {
         var runtime = parent.Runtime;
         min = UiGuard.Finite(min, 0f);
         max = UiGuard.Finite(max, min + 1f);
@@ -38,18 +38,26 @@ public sealed class Slider : Element {
                 native = SkinPolicy.TryNative("slider", () =>
                     NativeSlider.Create(runtime.Templates, parent.Root, min, max, value));
                 if (native != null) {
+                    var nativeRt = native.Rt;
+                    if (nativeRt == null) {
+                        var orphan = native.Slider != null ? native.Slider.gameObject : null;
+                        if (orphan != null) UiFactory.Destroy(orphan);
+                        return CreateManaged(parent, min, max, value, onChanged);
+                    }
                     if (native.ValueText == null) {
-                        var fallback = UiFactory.AddText(native.Rt, "DM Value", string.Empty, 14f,
+                        var fallback = UiFactory.AddText(nativeRt, "DM Value", string.Empty, 14f,
                                                          TextAlignmentOptions.MidlineRight, parent.Theme);
                         var fallbackLayout = UiFactory.Layout(fallback.rectTransform);
-                        fallbackLayout.minWidth = fallbackLayout.preferredWidth = 44f;
-                        fallbackLayout.minHeight = fallbackLayout.preferredHeight = 24f;
-                        fallbackLayout.flexibleWidth = 0f;
-                        fallbackLayout.flexibleHeight = 0f;
+                        if (fallbackLayout != null) {
+                            fallbackLayout.minWidth = fallbackLayout.preferredWidth = 44f;
+                            fallbackLayout.minHeight = fallbackLayout.preferredHeight = 24f;
+                            fallbackLayout.flexibleWidth = 0f;
+                            fallbackLayout.flexibleHeight = 0f;
+                        }
                         native.ValueText = fallback;
                     }
 
-                    var layout = UiFactory.Layout(native.Rt);
+                    var layout = UiFactory.Layout(nativeRt);
                     if (layout != null) {
                         layout.minWidth = 160f;
                         layout.preferredHeight = layout.minHeight = native.Height;
@@ -57,10 +65,10 @@ public sealed class Slider : Element {
                         layout.flexibleHeight = 0f;
                     }
 
-                    var result = new Slider(native.Rt, native.Slider, native.ValueText, onChanged);
+                    var result = new UiSlider(nativeRt, native.Slider, native.ValueText, onChanged);
                     result.UpdateLabel();
 
-                    var relay = native.Rt.gameObject.AddComponent<SliderRelay>();
+                    var relay = nativeRt.gameObject.AddComponent<SliderRelay>();
                     SliderRelayRegistry.Bind(relay, native.Slider, result.HandleValue);
                     return result;
                 }
@@ -77,7 +85,7 @@ public sealed class Slider : Element {
         return CreateManaged(parent, min, max, value, onChanged);
     }
 
-    private static Slider? CreateManaged(Container parent, float min, float max, float value, Action<float>? onChanged) {
+    private static UiSlider? CreateManaged(UiContainer parent, float min, float max, float value, Action<float>? onChanged) {
         var theme = parent.Theme;
 
         var root = UiFactory.NewRect("DM Slider Row", parent.Root);
@@ -92,15 +100,19 @@ public sealed class Slider : Element {
             row.childForceExpandHeight = true;
 
             var rootLayout = UiFactory.Layout(root);
-            rootLayout.minHeight = rootLayout.preferredHeight = 32f;
-            rootLayout.flexibleWidth = 1f;
-            rootLayout.flexibleHeight = 0f;
+            if (rootLayout != null) {
+                rootLayout.minHeight = rootLayout.preferredHeight = 32f;
+                rootLayout.flexibleWidth = 1f;
+                rootLayout.flexibleHeight = 0f;
+            }
 
             var area = UiFactory.NewRect("DM Slider", root);
             var areaLayout = UiFactory.Layout(area);
-            areaLayout.minHeight = areaLayout.preferredHeight = 32f;
-            areaLayout.flexibleWidth = 1f;
-            areaLayout.flexibleHeight = 0f;
+            if (areaLayout != null) {
+                areaLayout.minHeight = areaLayout.preferredHeight = 32f;
+                areaLayout.flexibleWidth = 1f;
+                areaLayout.flexibleHeight = 0f;
+            }
 
             var background = area.gameObject.AddComponent<UIImage>();
             background.color = new Color(0.16f, 0.14f, 0.12f, 0.95f);
@@ -146,12 +158,14 @@ public sealed class Slider : Element {
             var label = UiFactory.AddText(root, "DM Value", string.Empty, 14f,
                                           TextAlignmentOptions.MidlineRight, theme);
             var labelLayout = UiFactory.Layout(label.rectTransform);
-            labelLayout.minWidth = labelLayout.preferredWidth = 44f;
-            labelLayout.minHeight = labelLayout.preferredHeight = 24f;
-            labelLayout.flexibleWidth = 0f;
-            labelLayout.flexibleHeight = 0f;
+            if (labelLayout != null) {
+                labelLayout.minWidth = labelLayout.preferredWidth = 44f;
+                labelLayout.minHeight = labelLayout.preferredHeight = 24f;
+                labelLayout.flexibleWidth = 0f;
+                labelLayout.flexibleHeight = 0f;
+            }
 
-            var result = new Slider(root, slider, label, onChanged);
+            var result = new UiSlider(root, slider, label, onChanged);
             result.UpdateLabel();
 
             var relay = area.gameObject.AddComponent<SliderRelay>();
@@ -168,7 +182,7 @@ public sealed class Slider : Element {
 
     public float Value => _slider != null ? _slider.value : 0f;
 
-    public Slider Set(float value) {
+    public UiSlider Set(float value) {
         if (_slider == null) return this;
         UiGuard.Run("slider.set", () => {
             _slider.SetValueWithoutNotify(Mathf.Clamp(UiGuard.Finite(value, _slider.value), _slider.minValue, _slider.maxValue));
@@ -177,7 +191,7 @@ public sealed class Slider : Element {
         return this;
     }
 
-    public Slider Range(float min, float max) {
+    public UiSlider Range(float min, float max) {
         if (_slider == null) return this;
 
         UiGuard.Run("slider.range", () => {
@@ -191,7 +205,7 @@ public sealed class Slider : Element {
         return this;
     }
 
-    public Slider Format(string? format) {
+    public UiSlider Format(string? format) {
         if (!IsAlive) return this;
 
         string candidate = string.IsNullOrWhiteSpace(format) ? "0.##" : format;
@@ -208,7 +222,7 @@ public sealed class Slider : Element {
         return this;
     }
 
-    public Slider WholeNumbers(bool on = true) {
+    public UiSlider WholeNumbers(bool on = true) {
         if (!IsAlive) return this;
         UiGuard.Run("slider.whole-numbers", () => {
             if (_slider != null) _slider.wholeNumbers = on;
@@ -217,7 +231,7 @@ public sealed class Slider : Element {
         return this;
     }
 
-    public Slider Interactable(bool on = true) {
+    public UiSlider Interactable(bool on = true) {
         if (!IsAlive) return this;
         if (_slider != null) UiGuard.Run("slider.interactable", () => _slider.interactable = on);
         return this;

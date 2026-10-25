@@ -7,7 +7,7 @@ namespace DiceModders.UiKit.Native;
 /// Awake/OnEnable/Start, so it can be stripped and reconfigured before it enters the real UI.
 /// </summary>
 internal static class Staging {
-    private static GameObject _root;
+    private static GameObject? _root;
 
     public static Transform Root {
         get {
@@ -21,7 +21,7 @@ internal static class Staging {
     }
 
     /// <summary>True for objects created by this library, so template searches never pick up our own clones.</summary>
-    public static bool IsOurs(Transform transform) {
+    public static bool IsOurs(Transform? transform) {
         for (; transform != null; transform = transform.parent) {
             string name = transform.name;
             if (name.StartsWith("DM ") || name.StartsWith("DiceModders")) return true;

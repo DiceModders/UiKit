@@ -13,16 +13,16 @@ namespace DiceModders.UiKit.Custom;
 /// A dropdown in the game's own style when its template is available, otherwise a managed compact cycling button.
 /// The native skin opens the game's real popup; the managed fallback advances to the next option on click.
 /// </summary>
-public sealed class Dropdown : Element {
+public sealed class UiDropdown : UiElement {
     private readonly List<string> _options;
-    private readonly TMP_Text _label;
-    private readonly UButton _button;
-    private readonly Action<int> _onChanged;
-    private readonly NativeDropdown _native;
+    private readonly TMP_Text? _label;
+    private readonly UButton? _button;
+    private readonly Action<int>? _onChanged;
+    private readonly NativeDropdown? _native;
     private int _index;
 
-    internal Dropdown(RectTransform root, List<string> options, int index, TMP_Text label,
-                      UButton button, Action<int> onChanged, NativeDropdown native) : base(root) {
+    internal UiDropdown(RectTransform root, List<string> options, int index, TMP_Text? label,
+                      UButton? button, Action<int>? onChanged, NativeDropdown? native) : base(root) {
         _options = options;
         _index = ClampIndex(index);
         _label = label;
@@ -32,7 +32,7 @@ public sealed class Dropdown : Element {
         if (_native == null) UpdateLabel();
     }
 
-    internal static Dropdown? Create(Container parent, IEnumerable<string>? options, int index, Action<int>? onChanged) {
+    internal static UiDropdown? Create(UiContainer parent, IEnumerable<string>? options, int index, Action<int>? onChanged) {
         var runtime = parent.Runtime;
         var values = Normalize(options);
 
@@ -42,14 +42,16 @@ public sealed class Dropdown : Element {
                 native = SkinPolicy.TryNative("dropdown", () =>
                     NativeDropdown.Create(runtime.Templates, parent.Root, values, index));
                 if (native != null) {
-                    var layout = UiFactory.Layout(native.Rt);
+                    var nativeRt = native.Rt;
+                    if (nativeRt == null) { native.SetOptions(values, index); return CreateManaged(parent, values, index, onChanged); }
+                    var layout = UiFactory.Layout(nativeRt);
                     if (layout != null) {
                         layout.minHeight = layout.preferredHeight = native.Height;
                         layout.flexibleWidth = 1f;
                         layout.flexibleHeight = 0f;
                     }
 
-                    var result = new Dropdown(native.Rt, values, native.Index, null, null, onChanged, native);
+                    var result = new UiDropdown(nativeRt, values, native.Index, null, null, onChanged, native);
                     native.SetChanged(result.HandleNativeChange);
                     return result;
                 }
@@ -66,7 +68,7 @@ public sealed class Dropdown : Element {
         return CreateManaged(parent, values, index, onChanged);
     }
 
-    private static Dropdown? CreateManaged(Container parent, List<string> values, int index, Action<int>? onChanged) {
+    private static UiDropdown? CreateManaged(UiContainer parent, List<string> values, int index, Action<int>? onChanged) {
         var theme = parent.Theme;
         var root = UiFactory.NewRect("DM Dropdown", parent.Root);
         try {
@@ -112,11 +114,13 @@ public sealed class Dropdown : Element {
             arrow.rectTransform.anchoredPosition = new Vector2(-8f, 0f);
 
             var layout = UiFactory.Layout(root);
-            layout.minHeight = layout.preferredHeight = 32f;
-            layout.flexibleWidth = 1f;
-            layout.flexibleHeight = 0f;
+            if (layout != null) {
+                layout.minHeight = layout.preferredHeight = 32f;
+                layout.flexibleWidth = 1f;
+                layout.flexibleHeight = 0f;
+            }
 
-            var result = new Dropdown(root, values, index, label, button, onChanged, null);
+            var result = new UiDropdown(root, values, index, label, button, onChanged, null);
             var relay = root.gameObject.AddComponent<ClickRelay>();
             ClickRelayRegistry.Bind(relay, button, result.Cycle);
             return result;
@@ -132,7 +136,7 @@ public sealed class Dropdown : Element {
     public string Selected => _index >= 0 && _index < _options.Count ? _options[_index] : string.Empty;
     public int Count => _options.Count;
 
-    public Dropdown Set(int index) {
+    public UiDropdown Set(int index) {
         if (!IsAlive) return this;
         _index = ClampIndex(index);
         if (_native != null) UiGuard.Run("dropdown.set", () => _native.SetSilently(_index));
@@ -140,7 +144,7 @@ public sealed class Dropdown : Element {
         return this;
     }
 
-    public Dropdown Options(IEnumerable<string>? options) {
+    public UiDropdown Options(IEnumerable<string>? options) {
         if (!IsAlive) return this;
 
         List<string> values;
@@ -159,7 +163,7 @@ public sealed class Dropdown : Element {
         return this;
     }
 
-    public Dropdown Interactable(bool on = true) {
+    public UiDropdown Interactable(bool on = true) {
         if (!IsAlive) return this;
         if (_native != null) UiGuard.Run("dropdown.interactable", () => _native.SetInteractable(on));
         else if (_button != null) UiGuard.Run("dropdown.interactable", () => _button.interactable = on);

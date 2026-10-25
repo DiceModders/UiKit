@@ -19,7 +19,7 @@ internal sealed class AssetCatalog {
 
     private bool _scanned;
     private float _nextRescan;
-    private TMP_FontAsset _font;
+    private TMP_FontAsset? _font;
 
     public void Invalidate() {
         _sprites.Clear();
@@ -55,7 +55,7 @@ internal sealed class AssetCatalog {
         if (!_scanned) Scan();
     }
 
-    private T Lookup<T>(Dictionary<string, T> map, string name) where T : UnityEngine.Object {
+    private T? Lookup<T>(Dictionary<string, T> map, string? name) where T : UnityEngine.Object {
         if (string.IsNullOrEmpty(name)) return null;
         EnsureScanned();
         if (map.TryGetValue(name, out var found) && found != null) return found;
@@ -65,11 +65,11 @@ internal sealed class AssetCatalog {
         return map.TryGetValue(name, out found) && found != null ? found : null;
     }
 
-    public Sprite Sprite(string name) => Lookup(_sprites, name);
-    public Material Material(string name) => Lookup(_materials, name);
-    public TMP_FontAsset FontAsset(string name) => Lookup(_fonts, name);
+    public Sprite? Sprite(string? name) => Lookup(_sprites, name);
+    public Material? Material(string? name) => Lookup(_materials, name);
+    public TMP_FontAsset? FontAsset(string? name) => Lookup(_fonts, name);
 
-    public IEnumerable<string> SpriteNames(string contains = null) {
+    public IEnumerable<string> SpriteNames(string? contains = null) {
         EnsureScanned();
         foreach (var pair in _sprites) {
             if (pair.Value == null) continue;
@@ -78,7 +78,7 @@ internal sealed class AssetCatalog {
         }
     }
 
-    public TMP_FontAsset Font {
+    public TMP_FontAsset? Font {
         get {
             if (_font != null) return _font;
 
@@ -93,14 +93,14 @@ internal sealed class AssetCatalog {
         }
     }
 
-    public Material FontShadowMaterial => Material("Main-Font-Normal-Shadow");
+    public Material? FontShadowMaterial => Material("Main-Font-Normal-Shadow");
 
-    public Sprite PanelSprite => Sprite("Background-3") ?? Sprite("Background-4");
+    public Sprite? PanelSprite => Sprite("Background-3") ?? Sprite("Background-4");
 
-    public Sprite ButtonSprite(ButtonVariant variant, ButtonState state)
+    public Sprite? ButtonSprite(ButtonVariant variant, ButtonState state)
         => Sprite($"Button-{(int)variant}-{state}");
 
-    public Sprite Ornament(OrnamentStyle style) => style switch {
+    public Sprite? Ornament(OrnamentStyle style) => style switch {
         OrnamentStyle.Border => Sprite("Ornament-1"),
         OrnamentStyle.BorderWithTwoCorners => Sprite("Ornament-2"),
         OrnamentStyle.BorderWithFourCorners => Sprite("Ornament-5"),
@@ -108,7 +108,7 @@ internal sealed class AssetCatalog {
         _ => null,
     };
 
-    private TMP_FontAsset FontFromLive() {
+    private TMP_FontAsset? FontFromLive() {
         try {
             foreach (var text in UnityEngine.Object.FindObjectsOfType<TMP_Text>()) {
                 if (text == null || text.font == null || !text.gameObject.activeInHierarchy) continue;

@@ -20,12 +20,12 @@ namespace DiceModders.UiKit.Native;
 internal sealed class TemplateCatalog {
     private const float SearchInterval = 1f;
 
-    private GameObject _iconButton;
-    private GameObject _labelButton;
-    private SettingInterfaceBool _boolSetting;
-    private SettingInterfaceFloat _floatSetting;
-    private GameDropdown _dropdown;
-    private Scrollbar _scrollbar;
+    private GameObject? _iconButton;
+    private GameObject? _labelButton;
+    private SettingInterfaceBool? _boolSetting;
+    private SettingInterfaceFloat? _floatSetting;
+    private GameDropdown? _dropdown;
+    private Scrollbar? _scrollbar;
 
     private float _nextIcon;
     private float _nextLabel;
@@ -52,7 +52,7 @@ internal sealed class TemplateCatalog {
     }
 
     /// <summary>An icon button of the top-right bar (the Rules "?" button).</summary>
-    public GameObject IconButton() {
+    public GameObject? IconButton() {
         if (_iconButton != null) return _iconButton;
         if (!CanSearch(ref _nextIcon)) return null;
 
@@ -77,7 +77,7 @@ internal sealed class TemplateCatalog {
     }
 
     /// <summary>A text button (the Settings Close button, which uses the same Button-1 art as the settings controls).</summary>
-    public GameObject LabelButton() {
+    public GameObject? LabelButton() {
         if (_labelButton != null) return _labelButton;
         if (!CanSearch(ref _nextLabel)) return null;
 
@@ -107,7 +107,7 @@ internal sealed class TemplateCatalog {
     }
 
     /// <summary>The game's boolean setting control (checkbox art, checkmark, click sound).</summary>
-    public SettingInterfaceBool BoolSetting() {
+    public SettingInterfaceBool? BoolSetting() {
         if (_boolSetting != null) return _boolSetting;
         if (!CanSearch(ref _nextBool)) return null;
 
@@ -126,7 +126,7 @@ internal sealed class TemplateCatalog {
     }
 
     /// <summary>The game's float setting control (a slider with its value label).</summary>
-    public SettingInterfaceFloat FloatSetting() {
+    public SettingInterfaceFloat? FloatSetting() {
         if (_floatSetting != null) return _floatSetting;
         if (!CanSearch(ref _nextFloat)) return null;
 
@@ -144,7 +144,7 @@ internal sealed class TemplateCatalog {
     }
 
     /// <summary>The game's dropdown wrapper around a TMP_Dropdown (the Language setting).</summary>
-    public GameDropdown Dropdown() {
+    public GameDropdown? Dropdown() {
         if (_dropdown != null) return _dropdown;
         if (!CanSearch(ref _nextDropdown)) return null;
 
@@ -162,12 +162,12 @@ internal sealed class TemplateCatalog {
     }
 
     /// <summary>A vertical scrollbar of the game's art (not one of the dropdown popup templates).</summary>
-    public Scrollbar VerticalScrollbar() {
+    public Scrollbar? VerticalScrollbar() {
         if (_scrollbar != null) return _scrollbar;
         if (!CanSearch(ref _nextScrollbar)) return null;
 
         try {
-            Scrollbar best = null;
+            Scrollbar? best = null;
             foreach (var o in Resources.FindObjectsOfTypeAll(Il2CppType.Of<Scrollbar>())) {
                 var bar = o?.TryCast<Scrollbar>();
                 if (bar == null || Staging.IsOurs(bar.transform) || bar.handleRect == null) continue;

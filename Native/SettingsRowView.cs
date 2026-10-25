@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace DiceModders.UiKit.Native;
 
-/// <summary>The native objects that currently represent one <see cref="SettingsRow"/> in a settings page.</summary>
+/// <summary>The native objects that currently represent one <see cref="SettingsRowHandle"/> in a settings page.</summary>
 internal sealed class SettingsRowView {
     public GameObject? Go;
     public NativeToggle? Toggle;

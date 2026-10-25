@@ -15,7 +15,7 @@ internal static class UiFactory {
         return types;
     }
 
-    public static RectTransform NewRect(string name, Transform parent) {
+    public static RectTransform NewRect(string name, Transform? parent) {
         var go = new GameObject(name, RectTypes);
         var rect = go.GetComponent<RectTransform>();
         if (parent != null) {
@@ -36,7 +36,7 @@ internal static class UiFactory {
         rect.offsetMax = Vector2.zero;
     }
 
-    public static Image AddImage(RectTransform parent, string name, Sprite sprite, Color? color = null, bool raycast = false) {
+    public static Image AddImage(RectTransform? parent, string name, Sprite? sprite, Color? color = null, bool raycast = false) {
         var rect = NewRect(name, parent);
         var image = rect.gameObject.AddComponent<Image>();
         image.sprite = sprite;
@@ -46,8 +46,8 @@ internal static class UiFactory {
         return image;
     }
 
-    public static TextMeshProUGUI AddText(RectTransform parent, string name, string value, float size,
-                                          TextAlignmentOptions align, UiTheme theme, bool raycast = false) {
+    public static TextMeshProUGUI AddText(RectTransform? parent, string name, string? value, float size,
+                                          TextAlignmentOptions align, UiTheme? theme, bool raycast = false) {
         var rect = NewRect(name, parent);
         var text = rect.gameObject.AddComponent<TextMeshProUGUI>();
         ApplyFont(text, theme);
@@ -59,7 +59,7 @@ internal static class UiFactory {
         return text;
     }
 
-    public static void ApplyFont(TMP_Text text, UiTheme theme) {
+    public static void ApplyFont(TMP_Text? text, UiTheme? theme) {
         if (text == null || theme == null) return;
 
         var font = theme.Font;
@@ -70,7 +70,7 @@ internal static class UiFactory {
         else if (font != null) text.fontSharedMaterial = font.material;
     }
 
-    public static LayoutElement Layout(RectTransform rect) {
+    public static LayoutElement? Layout(RectTransform? rect) {
         if (rect == null) return null;
         return rect.gameObject.GetComponent<LayoutElement>()
             ?? rect.gameObject.AddComponent<LayoutElement>();

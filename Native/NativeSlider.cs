@@ -16,20 +16,20 @@ internal sealed class NativeSlider {
     private const float ValueWidth = 64f;
     private const float ValueGap = 8f;
 
-    public RectTransform Rt { get; private set; }
-    public Slider Slider { get; private set; }
-    public TMP_Text ValueText { get; internal set; }
+    public RectTransform? Rt { get; private set; }
+    public Slider? Slider { get; private set; }
+    public TMP_Text? ValueText { get; internal set; }
     public float Height { get; private set; } = 32f;
     public bool IsAlive => Rt != null && Slider != null;
     public float Value => Slider != null ? Slider.value : 0f;
 
-    private Action<float> _changed;
-    private UnityAction<float> _unity;
+    private Action<float>? _changed;
+    private UnityAction<float>? _unity;
     private string _format = "0.##";
 
     private NativeSlider() { }
 
-    public static NativeSlider Create(TemplateCatalog templates, Transform parent, float min, float max, float value) {
+    public static NativeSlider? Create(TemplateCatalog? templates, Transform? parent, float min, float max, float value) {
         var prefab = templates?.FloatSetting();
         if (prefab == null) return null;
 
@@ -40,7 +40,7 @@ internal sealed class NativeSlider {
         var binding = go.GetComponent<GameSettingFloat>();
         var slider = binding != null ? binding.slider : null;
         if (slider == null) slider = go.GetComponentInChildren<Slider>(true);
-        TMP_Text label = binding != null && binding.label != null ? binding.label.visual : null;
+        TMP_Text? label = binding != null && binding.label != null ? binding.label.visual : null;
         if (label == null) label = go.GetComponentInChildren<TMP_Text>(true);
 
         if (binding != null) UnityEngine.Object.DestroyImmediate(binding);
@@ -75,7 +75,7 @@ internal sealed class NativeSlider {
         return result;
     }
 
-    public void SetChanged(Action<float> changed) {
+    public void SetChanged(Action<float>? changed) {
         _changed = changed;
         if (Slider == null) return;
 
@@ -88,11 +88,12 @@ internal sealed class NativeSlider {
 
         Action<float> handler = OnValueChanged;
         _unity = Il2CppDelegates.ToUnityActionFloat(handler);
+        if (_unity == null) return;
         Slider.onValueChanged.AddListener(_unity);
-        Il2CppDelegates.Hold(Slider.gameObject, new object[] { handler, _unity });
+        Il2CppDelegates.Hold(Slider.gameObject, new object?[] { handler, _unity });
     }
 
-    public void SetFormat(string format) {
+    public void SetFormat(string? format) {
         _format = string.IsNullOrEmpty(format) ? "0.##" : format;
         UpdateLabel();
     }
@@ -122,7 +123,7 @@ internal sealed class NativeSlider {
     /// The donor prefab overlays its value label on the track. Lay the label out as a fixed column to the left of the
     /// track instead, so the value reads before the slider and long values do not cover the handle.
     /// </summary>
-    private static void LayoutParts(TMP_Text label, Slider slider) {
+    private static void LayoutParts(TMP_Text? label, Slider? slider) {
         if (label != null) {
             var labelRt = label.rectTransform;
             labelRt.anchorMin = labelRt.anchorMax = new Vector2(0f, 0.5f);

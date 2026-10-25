@@ -15,13 +15,13 @@ public sealed class CustomApi {
     /// Creates a window and lets the caller build its content. Returns <c>null</c> when the scope is gone or the build
     /// callback fails; a failed window is disposed before returning, so no half-built window leaks.
     /// </summary>
-    public Window? Window(Action<Window>? build = null) {
+    public UiWindow? Window(Action<UiWindow>? build = null) {
         if (!_scope.IsAlive) {
             UiLog.OnceError("custom:disposed-scope", "cannot create a window in a disposed scope");
             return null;
         }
 
-        var window = UiGuard.Func("window.create", () => new Window(_scope), _scope.Id);
+        var window = UiGuard.Func("window.create", () => new UiWindow(_scope), _scope.Id);
         if (window == null) return null;
 
         _scope.Owned.Add(window);

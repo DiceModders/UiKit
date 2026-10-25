@@ -6,7 +6,7 @@ namespace DiceModders.UiKit.Native;
 
 /// <summary>A vertical scrollbar cloned from the game's own scroll view, with the donor's value listeners removed.</summary>
 internal static class NativeScrollbar {
-    public static Scrollbar Create(TemplateCatalog templates, RectTransform parent) {
+    public static Scrollbar? Create(TemplateCatalog? templates, RectTransform? parent) {
         var template = templates?.VerticalScrollbar();
         if (template == null) return null;
 
@@ -25,8 +25,10 @@ internal static class NativeScrollbar {
             bar.onValueChanged = new Scrollbar.ScrollEvent();
             bar.direction = Scrollbar.Direction.BottomToTop;
 
-            var rect = go.GetComponent<RectTransform>();
-            float width = Mathf.Clamp(rect != null && rect.rect.width > 1f ? rect.rect.width : 10f, 8f, 24f);
+            var found = go.GetComponent<RectTransform>();
+            if (found == null) { UnityEngine.Object.Destroy(go); return null; }
+            var rect = found;
+            float width = Mathf.Clamp(rect.rect.width > 1f ? rect.rect.width : 10f, 8f, 24f);
 
             go.transform.SetParent(parent, false);
             rect.anchorMin = new Vector2(1f, 0f);

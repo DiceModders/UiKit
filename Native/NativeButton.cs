@@ -26,13 +26,13 @@ internal sealed class NativeButton {
     private const float IconFill = 0.82f;
     private const float BarIconFill = 0.7f;
 
-    public GameObject Go { get; private set; }
-    public RectTransform Rt { get; private set; }
-    public Image Face { get; private set; }
-    public Button UnityButton { get; private set; }
-    public GameButton Game { get; private set; }
-    public TMP_Text Text { get; private set; }
-    public GameToolTip Tip { get; private set; }
+    public GameObject? Go { get; private set; }
+    public RectTransform? Rt { get; private set; }
+    public Image? Face { get; private set; }
+    public Button? UnityButton { get; private set; }
+    public GameButton? Game { get; private set; }
+    public TMP_Text? Text { get; private set; }
+    public GameToolTip? Tip { get; private set; }
 
     public bool Selected { get; private set; } = true;
     public bool IsAlive => Go != null;
@@ -42,10 +42,10 @@ internal sealed class NativeButton {
     private float _iconScale = 1f;
     private float _iconFill = IconFill;
 
-    private Image _dim;
+    private Image? _dim;
     private GameButton.State _state = GameButton.State.READY;
     private bool _stateEvents;
-    private Action _click;
+    private Action? _click;
     private bool _clickWired;
 
     private NativeButton() { }
@@ -53,17 +53,18 @@ internal sealed class NativeButton {
     // ---------------------------------------------------------------- creation
 
     /// <summary>Text button, cloned from the Settings Close button.</summary>
-    public static NativeButton CreateLabel(TemplateCatalog templates, Transform parent, string name, string text,
-                                          float fontSize, Action click, string tooltip = null) {
+    public static NativeButton? CreateLabel(TemplateCatalog? templates, Transform? parent, string name, string? text,
+                                          float fontSize, Action? click, string? tooltip = null) {
         var template = templates?.LabelButton();
         if (template == null) return null;
 
         var button = Clone(template, parent, name, tooltip);
-        if (button == null) return null;
+        if (button == null || button.Go == null) return null;
+        var go = button.Go;
 
-        var label = button.Go.GetComponent<GameButtonLabel>();
+        var label = go.GetComponent<GameButtonLabel>();
         button.Text = label != null && label.label != null ? label.label.visual : null;
-        if (button.Text == null) button.Text = button.Go.GetComponentInChildren<TMP_Text>(true);
+        if (button.Text == null) button.Text = go.GetComponentInChildren<TMP_Text>(true);
         if (button.Text != null) {
             button.Text.text = text ?? string.Empty;
             FitInRect(button.Text, fontSize);
@@ -77,21 +78,22 @@ internal sealed class NativeButton {
     /// Icon button: the same label-button clone as <see cref="CreateLabel"/>, with an icon in place of the text, so it has
     /// exactly the native size, outline, shadow, hover/pressed art, cursor and sounds.
     /// </summary>
-    public static NativeButton CreateIcon(TemplateCatalog templates, Transform parent, string name, Sprite icon,
-                                          Action click, string tooltip) {
+    public static NativeButton? CreateIcon(TemplateCatalog? templates, Transform? parent, string name, Sprite? icon,
+                                          Action? click, string? tooltip) {
         var template = templates?.LabelButton();
         if (template == null) return null;
 
         var button = Clone(template, parent, name, tooltip);
-        if (button == null) return null;
+        if (button == null || button.Go == null) return null;
+        var go = button.Go;
 
-        var label = button.Go.GetComponent<GameButtonLabel>();
+        var label = go.GetComponent<GameButtonLabel>();
         var text = label != null && label.label != null
             ? label.label.visual
-            : button.Go.GetComponentInChildren<TMP_Text>(true);
+            : go.GetComponentInChildren<TMP_Text>(true);
         if (text != null) text.text = string.Empty;
 
-        var top = button.Go.transform.Find("Top");
+        var top = go.transform.Find("Top");
         var holder = top != null ? top.GetComponent<RectTransform>() : button.Rt;
         var iconRect = UiFactory.NewRect("Icon", holder);
         var image = iconRect.gameObject.AddComponent<Image>();
@@ -105,8 +107,8 @@ internal sealed class NativeButton {
     }
 
     /// <summary>Top-bar icon button, cloned from the game's own bar button (native 48-unit art).</summary>
-    public static NativeButton CreateBarIcon(TemplateCatalog templates, Transform parent, string name, Sprite icon,
-                                             Action click, string tooltip) {
+    public static NativeButton? CreateBarIcon(TemplateCatalog? templates, Transform? parent, string name, Sprite? icon,
+                                             Action? click, string? tooltip) {
         var template = templates?.IconButton();
         if (template == null) return null;
 
@@ -129,7 +131,7 @@ internal sealed class NativeButton {
         return button;
     }
 
-    private static NativeButton Clone(GameObject template, Transform parent, string name, string tooltip) {
+    private static NativeButton? Clone(GameObject template, Transform? parent, string name, string? tooltip) {
         // Parked under an inactive parent: the clone's scripts do not run until it enters the real UI.
         var go = UnityEngine.Object.Instantiate(template, Staging.Root);
         go.name = name;
@@ -185,7 +187,7 @@ internal sealed class NativeButton {
 
         if (button.Game == null)
             UiLog.Once("native:no-base:" + template.name, $"native button '{template.name}' has no BaseButton; cursor/sounds will be missing.");
-        if (tip != null) tip.UpdateInitialText(tooltip);
+        if (tip != null) tip.UpdateInitialText(tooltip ?? string.Empty);
         return button;
     }
 
@@ -206,7 +208,7 @@ internal sealed class NativeButton {
         }
 
         var donor = FindLiveDonor();
-        GameAudioSources audio = donor != null ? donor.audioSources : null;
+        GameAudioSources? audio = donor != null ? donor.audioSources : null;
 
         foreach (var game in buttons) {
             if (game == null) continue;
@@ -241,7 +243,7 @@ internal sealed class NativeButton {
         }
     }
 
-    private static GameButton FindLiveDonor() {
+    private static GameButton? FindLiveDonor() {
         try {
             foreach (var button in UnityEngine.Object.FindObjectsOfType<GameButton>()) {
                 if (button == null || button.gameObject == null || Staging.IsOurs(button.transform)) continue;
@@ -260,7 +262,7 @@ internal sealed class NativeButton {
     /// can throw from inside native code when a cloned prefab has an incomplete audio reference; catching it here keeps
     /// BaseButton.Update alive and avoids the infinite exception loop that freezes the game.
     /// </summary>
-    private static void GuardStateEvents(GameButton game, GameObject go) {
+    private static void GuardStateEvents(GameButton? game, GameObject? go) {
         if (game == null || go == null) return;
 
         string label = go.name;
@@ -279,14 +281,14 @@ internal sealed class NativeButton {
 
             var native = DelegateSupport.ConvertDelegate<Il2CppSystem.Action<GameButton.State, GameButton.State>>(safe);
             game.onStateChange = native;
-            Il2CppDelegates.Hold(go, new object[] { safe, native, original });
+            Il2CppDelegates.Hold(go, new object?[] { safe, native, original });
         }
         catch (Exception e) {
             UiLog.Once("native:state-install:" + label, "could not guard native button state callback: " + e.Message);
         }
     }
 
-    private static GameAudioSources FindAudioSources() {
+    private static GameAudioSources? FindAudioSources() {
         try {
             var audio = GameAudioSources.instance;
             if (audio != null) return audio;
@@ -299,7 +301,7 @@ internal sealed class NativeButton {
         catch { return null; }
     }
 
-    private static GameToolTip ConfigureTooltip(GameObject go, GameToolTip tip, string text) {
+    private static GameToolTip ConfigureTooltip(GameObject go, GameToolTip? tip, string? text) {
         if (tip == null) tip = go.AddComponent<GameToolTip>();
         tip.localizedInitialText = new UnityEngine.Localization.LocalizedString();
         tip.initialText = text ?? string.Empty;
@@ -329,11 +331,11 @@ internal sealed class NativeButton {
 
     // ---------------------------------------------------------------- content
 
-    public void SetText(string value) {
+    public void SetText(string? value) {
         if (Text != null) Text.text = value ?? string.Empty;
     }
 
-    public void SetIcon(Sprite sprite) {
+    public void SetIcon(Sprite? sprite) {
         if (sprite == null || Go == null) return;
 
         ReduceAtlasBleed(sprite);
@@ -360,10 +362,10 @@ internal sealed class NativeButton {
         }
     }
 
-    private Image EnsureIconImage() {
+    private Image? EnsureIconImage() {
         var existing = FindIconImageIn(Go);
         if (existing != null) return existing;
-        if (Rt == null) return null;
+        if (Go == null || Rt == null) return null;
 
         var top = Go.transform.Find("Top");
         var holder = top != null ? top.GetComponent<RectTransform>() : Rt;
@@ -374,14 +376,14 @@ internal sealed class NativeButton {
         return image;
     }
 
-    private static Image FindIconImageIn(GameObject root) {
+    private static Image? FindIconImageIn(GameObject? root) {
         if (root == null) return null;
 
         var direct = root.transform.Find("Top/Icon");
         var image = direct != null ? direct.GetComponent<Image>() : null;
         if (image != null) return image;
 
-        Image fallback = null;
+        Image? fallback = null;
         foreach (var candidate in root.GetComponentsInChildren<Image>(true)) {
             if (candidate == null || candidate.gameObject == root) continue;
             if (Staging.IsOurs(candidate.transform)) continue;
@@ -415,8 +417,16 @@ internal sealed class NativeButton {
         NormalizeIcon();
     }
 
-    public void SetTooltip(string text) {
-        if (Go == null || string.IsNullOrWhiteSpace(text)) return;
+    public void SetTooltip(string? text) {
+        if (Go == null) return;
+
+        if (string.IsNullOrWhiteSpace(text)) {
+            if (Tip != null) {
+                UnityEngine.Object.DestroyImmediate(Tip);
+                Tip = null;
+            }
+            return;
+        }
 
         if (Tip == null) {
             Tip = ConfigureTooltip(Go, null, text);
@@ -438,22 +448,25 @@ internal sealed class NativeButton {
 
     // ---------------------------------------------------------------- click
 
-    public void SetClick(Action click) {
+    public void SetClick(Action? click) {
         _click = click;
         if (_clickWired || Go == null) return;
-        _clickWired = true;
 
         Action wrapped = OnClick;
         if (Game != null) {
             var native = Il2CppDelegates.ToIl2CppAction(wrapped);
+            if (native == null) return;
             Game.onClick = native;
             Il2CppDelegates.Hold(Go, new object[] { wrapped, native });
         }
         else {
             var native = Il2CppDelegates.ToUnityAction(wrapped);
+            if (native == null || UnityButton == null) return;
             UnityButton.onClick.AddListener(native);
             Il2CppDelegates.Hold(Go, new object[] { wrapped, native });
         }
+
+        _clickWired = true;
     }
 
     private void OnClick() {
@@ -536,7 +549,7 @@ internal sealed class NativeButton {
             var native = DelegateSupport.ConvertDelegate<Il2CppSystem.Action<GameButton.State, GameButton.State>>(changed);
             Game.onStateChange = Il2CppSystem.Delegate.Combine(Game.onStateChange, native)
                 .Cast<Il2CppSystem.Action<GameButton.State, GameButton.State>>();
-            Il2CppDelegates.Hold(Go, new object[] { changed, native });
+            Il2CppDelegates.Hold(Go, new object?[] { changed, native });
             _stateEvents = true;
         }
         catch (Exception e) {

@@ -6,21 +6,21 @@ using UILayout = UnityEngine.UI.LayoutElement;
 namespace DiceModders.UiKit.Custom;
 
 /// <summary>
-/// A text line. A plain <see cref="Text"/> is one line cut with "..." when it is too long; call <see cref="Wrap"/> for a paragraph whose
+/// A text line. A plain <see cref="UiText"/> is one line cut with "..." when it is too long; call <see cref="Wrap"/> for a paragraph whose
 /// height follows the text.
 /// </summary>
-public sealed class Text : Element {
+public sealed class UiText : UiElement {
     private readonly TextMeshProUGUI _text;
     private readonly AutoHeightText _auto;
     private bool _wrap;
 
-    internal Text(RectTransform root, TextMeshProUGUI text, AutoHeightText auto, bool wrap) : base(root) {
+    internal UiText(RectTransform root, TextMeshProUGUI text, AutoHeightText auto, bool wrap) : base(root) {
         _text = text;
         _auto = auto;
         _wrap = wrap;
     }
 
-    internal static Text? Create(RectTransform parent, string? value, bool wrap, UiTheme? theme) {
+    internal static UiText? Create(RectTransform? parent, string? value, bool wrap, UiTheme? theme) {
         var rect = UiFactory.NewRect(wrap ? "DM Paragraph" : "DM Label", parent);
 
         try {
@@ -36,6 +36,7 @@ public sealed class Text : Element {
             text.overflowMode = wrap ? TextOverflowModes.Overflow : TextOverflowModes.Ellipsis;
 
             var layout = UiFactory.Layout(rect);
+            if (layout == null) { UiFactory.Destroy(rect.gameObject); return null; }
             layout.flexibleWidth = 1f;
             layout.minWidth = 0f;
             layout.preferredWidth = 0f;
@@ -51,7 +52,7 @@ public sealed class Text : Element {
             auto.Bind(text, layout);
             auto.SetEnabled(wrap);
 
-            return new Text(rect, text, auto, wrap);
+            return new UiText(rect, text, auto, wrap);
         }
         catch (Exception e) {
             UiGuard.Report("text.create", e);
@@ -81,7 +82,7 @@ public sealed class Text : Element {
         }
     }
 
-    public Text Wrap(bool on = true) {
+    public UiText Wrap(bool on = true) {
         if (_text == null || _wrap == on) return this;
         _wrap = on;
 
@@ -111,19 +112,19 @@ public sealed class Text : Element {
         return this;
     }
 
-    public Text Align(TextAlignmentOptions alignment) {
+    public UiText Align(TextAlignmentOptions alignment) {
         if (_text == null) return this;
         UiGuard.Run("text.align", () => _text.alignment = alignment);
         return this;
     }
 
-    public Text Color(Color color) {
+    public UiText Color(Color color) {
         if (_text == null) return this;
         UiGuard.Run("text.color", () => _text.color = color);
         return this;
     }
 
-    public Text Size(float fontSize) {
+    public UiText Size(float fontSize) {
         if (_text == null) return this;
         UiGuard.Run("text.size", () => {
             _text.fontSize = UiGuard.Finite(fontSize, 16f);

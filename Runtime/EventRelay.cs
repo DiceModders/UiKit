@@ -10,7 +10,7 @@ namespace DiceModders.UiKit;
 /// signatures off the components avoids IL2CPP registration warnings for unsupported <see cref="Action"/> parameters.
 /// </summary>
 internal static class EventRelay {
-    public static UnityAction ToUnity(Action action) {
+    public static UnityAction? ToUnity(Action? action) {
         if (action == null) return null;
 
         Action guarded = () => {
@@ -20,7 +20,7 @@ internal static class EventRelay {
         return DelegateSupport.ConvertDelegate<UnityAction>(guarded);
     }
 
-    public static UnityAction<float> ToUnity(Action<float> action) {
+    public static UnityAction<float>? ToUnity(Action<float>? action) {
         if (action == null) return null;
 
         Action<float> guarded = value => {
@@ -30,7 +30,7 @@ internal static class EventRelay {
         return DelegateSupport.ConvertDelegate<UnityAction<float>>(guarded);
     }
 
-    public static UnityAction<BaseEventData> ToEvent(Action<BaseEventData> action) {
+    public static UnityAction<BaseEventData>? ToEvent(Action<BaseEventData>? action) {
         if (action == null) return null;
 
         Action<BaseEventData> guarded = data => {

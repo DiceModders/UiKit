@@ -7,21 +7,22 @@ using UIImage = UnityEngine.UI.Image;
 namespace DiceModders.UiKit.Custom;
 
 /// <summary>A vertical scroll view. Add rows to <see cref="Content"/>; the view stays at the top while the content grows, until the user scrolls.</summary>
-public sealed class Scroll : Element {
+public sealed class UiScroll : UiElement {
     private readonly ScrollRect _scroll;
-    private readonly Container _content;
+    private readonly UiContainer _content;
 
-    internal Scroll(RectTransform root, ScrollRect scroll, Container content) : base(root) {
+    internal UiScroll(RectTransform root, ScrollRect scroll, UiContainer content) : base(root) {
         _scroll = scroll;
         _content = content;
     }
 
-    internal static Scroll? Create(Container parent, Action<Container>? build) {
+    internal static UiScroll? Create(UiContainer parent, Action<UiContainer>? build) {
         var theme = parent.Theme;
 
         var root = UiFactory.NewRect("DM ScrollView", parent.Root);
         try {
             var rootLayout = UiFactory.Layout(root);
+            if (rootLayout == null) { UiFactory.Destroy(root.gameObject); return null; }
             rootLayout.minHeight = 60f;
             rootLayout.flexibleWidth = 1f;
             rootLayout.flexibleHeight = 1f;
@@ -81,14 +82,14 @@ public sealed class Scroll : Element {
             var pin = content.gameObject.AddComponent<ScrollPin>();
             pin.Bind(scroll);
 
-            var container = new Container(content, layout, theme, parent.Runtime);
+            var container = new UiContainer(content, layout, theme, parent.Runtime);
             build?.Invoke(container);
             if (!container.IsAlive) {
                 UiFactory.Destroy(root.gameObject);
                 return null;
             }
 
-            return new Scroll(root, scroll, container);
+            return new UiScroll(root, scroll, container);
         }
         catch (Exception e) {
             UiGuard.Report("scroll.create", e);
@@ -135,7 +136,7 @@ public sealed class Scroll : Element {
         return scrollbar;
     }
 
-    public Container Content => _content;
+    public UiContainer Content => _content;
 
     /// <summary>0 = top, 1 = bottom.</summary>
     public float Position {
@@ -146,12 +147,12 @@ public sealed class Scroll : Element {
         }
     }
 
-    public Scroll ToTop() {
+    public UiScroll ToTop() {
         Position = 0f;
         return this;
     }
 
-    public Scroll ToBottom() {
+    public UiScroll ToBottom() {
         UiGuard.Run("scroll.to-bottom", () => {
             Canvas.ForceUpdateCanvases();
             Position = 1f;

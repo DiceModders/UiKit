@@ -6,18 +6,18 @@ using UIRawImage = UnityEngine.UI.RawImage;
 namespace DiceModders.UiKit.Custom;
 
 /// <summary>A picture on a window, useful for maps and other custom drawings. Pointer and wheel events arrive through Unity's event interfaces.</summary>
-public sealed class Image : Element {
+public sealed class UiImage : UiElement {
     private readonly UIRawImage _image;
     private readonly UIAspect _fitter;
     private readonly PointerReceiver _receiver;
 
-    internal Image(RectTransform root, UIRawImage image, UIAspect fitter, PointerReceiver receiver) : base(root) {
+    internal UiImage(RectTransform root, UIRawImage image, UIAspect fitter, PointerReceiver receiver) : base(root) {
         _image = image;
         _fitter = fitter;
         _receiver = receiver;
     }
 
-    internal static Image? Create(Container parent, Texture? texture) {
+    internal static UiImage? Create(UiContainer parent, Texture? texture) {
         var root = UiFactory.NewRect("DM Image", parent.Root);
 
         try {
@@ -36,11 +36,13 @@ public sealed class Image : Element {
             receiver.Bind(picture);
 
             var layout = UiFactory.Layout(root);
-            layout.preferredHeight = 120f;
-            layout.flexibleWidth = 1f;
-            layout.flexibleHeight = 0f;
+            if (layout != null) {
+                layout.preferredHeight = 120f;
+                layout.flexibleWidth = 1f;
+                layout.flexibleHeight = 0f;
+            }
 
-            return new Image(root, image, fitter, receiver);
+            return new UiImage(root, image, fitter, receiver);
         }
         catch (Exception e) {
             UiGuard.Report("image.create", e);
@@ -56,7 +58,7 @@ public sealed class Image : Element {
 
     public Texture? Texture => _image != null ? _image.texture : null;
 
-    public Image SetTexture(Texture? texture) {
+    public UiImage SetTexture(Texture? texture) {
         if (!IsAlive || _image == null) return this;
         UiGuard.Run("image.texture", () => {
             _image.texture = texture;
@@ -65,7 +67,7 @@ public sealed class Image : Element {
         return this;
     }
 
-    public Image Filter(FilterMode mode) {
+    public UiImage Filter(FilterMode mode) {
         if (!IsAlive) return this;
         UiGuard.Run("image.filter", () => {
             if (_image != null && _image.texture != null) _image.texture.filterMode = mode;
@@ -73,7 +75,7 @@ public sealed class Image : Element {
         return this;
     }
 
-    public Image Refresh() {
+    public UiImage Refresh() {
         if (!IsAlive || _image == null || _image.texture == null) return this;
         UiGuard.Run("image.refresh", () => {
             var texture = _image.texture.TryCast<Texture2D>();
@@ -82,7 +84,7 @@ public sealed class Image : Element {
         return this;
     }
 
-    public Image KeepAspect(bool on = true) {
+    public UiImage KeepAspect(bool on = true) {
         if (!IsAlive || _fitter == null || _image == null) return this;
 
         UiGuard.Run("image.keep-aspect", () => {
@@ -93,13 +95,13 @@ public sealed class Image : Element {
         return this;
     }
 
-    public Image OnPointer(Action<PointerEvent>? handler) {
+    public UiImage OnPointer(Action<UiPointerEvent>? handler) {
         if (!IsAlive) return this;
         UiGuard.Run("image.pointer", () => PointerRegistry.SetPointer(_receiver, handler));
         return this;
     }
 
-    public Image OnScroll(Action<float>? handler) {
+    public UiImage OnScroll(Action<float>? handler) {
         if (!IsAlive) return this;
         UiGuard.Run("image.scroll", () => PointerRegistry.SetScroll(_receiver, handler));
         return this;

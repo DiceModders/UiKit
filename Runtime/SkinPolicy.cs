@@ -11,7 +11,7 @@ internal static class SkinPolicy {
         => runtime == null || runtime.Options.Templates != TemplatePolicy.NativeOnly;
 
     /// <summary>Runs a native template/clone operation, turning unexpected game-side failures into a managed fallback.</summary>
-    public static T TryNative<T>(string widget, Func<T> create) where T : class {
+    public static T? TryNative<T>(string widget, Func<T?> create) where T : class {
         try {
             return create();
         }

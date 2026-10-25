@@ -13,16 +13,18 @@ namespace DiceModders.UiKit.Custom;
 internal sealed class ScrollPin : MonoBehaviour {
     public ScrollPin(IntPtr ptr) : base(ptr) { }
 
-    private ScrollRect _scroll;
-    private UnityAction<Vector2> _handler;
+    private ScrollRect? _scroll;
+    private UnityAction<Vector2>? _handler;
     private bool _pinned = true;
     private bool _applying;
 
-    public void Bind(ScrollRect scroll) {
+    public void Bind(ScrollRect? scroll) {
         if (scroll == null) return;
         _scroll = scroll;
-        _handler = DelegateSupport.ConvertDelegate<UnityAction<Vector2>>(OnScroll);
-        scroll.onValueChanged.AddListener(_handler);
+        var handler = DelegateSupport.ConvertDelegate<UnityAction<Vector2>>(OnScroll);
+        if (handler == null) return;
+        _handler = handler;
+        scroll.onValueChanged.AddListener(handler);
     }
 
     private void OnScroll(Vector2 position) {

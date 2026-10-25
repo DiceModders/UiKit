@@ -11,19 +11,20 @@ namespace DiceModders.UiKit.Custom;
 /// </summary>
 internal static class ClickRelayRegistry {
     private sealed class Binding {
-        public UButton Button;
-        public UnityAction Callback;
+        public UButton? Button;
+        public UnityAction? Callback;
     }
 
     private static readonly ConditionalWeakTable<ClickRelay, Binding> Table = new();
 
-    public static void Bind(ClickRelay relay, UButton button, Action action) {
+    public static void Bind(ClickRelay relay, UButton? button, Action? action) {
         if (relay == null) return;
 
         Clear(relay);
         if (button == null || action == null) return;
 
         var callback = EventRelay.ToUnity(action);
+        if (callback == null) return;
         button.onClick.AddListener(callback);
         Table.Add(relay, new Binding { Button = button, Callback = callback });
     }
@@ -33,6 +34,6 @@ internal static class ClickRelayRegistry {
         if (!Table.TryGetValue(relay, out var binding)) return;
 
         Table.Remove(relay);
-        if (binding.Button != null) binding.Button.onClick.RemoveListener(binding.Callback);
+        if (binding.Button != null && binding.Callback != null) binding.Button.onClick.RemoveListener(binding.Callback);
     }
 }

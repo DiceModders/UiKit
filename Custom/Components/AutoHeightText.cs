@@ -13,15 +13,15 @@ namespace DiceModders.UiKit.Custom;
 internal sealed class AutoHeightText : MonoBehaviour {
     public AutoHeightText(IntPtr ptr) : base(ptr) { }
 
-    private TMP_Text _text;
-    private LayoutElement _layout;
+    private TMP_Text? _text;
+    private LayoutElement? _layout;
     private float _lastHeight = -1f;
     private bool _scheduled;
-    private Canvas.WillRenderCanvases _canvasHandler;
+    private Canvas.WillRenderCanvases? _canvasHandler;
 
     public bool Enabled { get; private set; }
 
-    public void Bind(TMP_Text text, LayoutElement layout) {
+    public void Bind(TMP_Text? text, LayoutElement? layout) {
         _text = text;
         _layout = layout;
     }
@@ -50,12 +50,14 @@ internal sealed class AutoHeightText : MonoBehaviour {
 
     private void MeasureSoon() {
         if (!Enabled || _scheduled || _text == null) return;
-        _scheduled = true;
 
         // One-shot layout check: fires once before the next canvas render, then unsubscribes.
         Action action = OnWillRenderCanvases;
-        _canvasHandler = DelegateSupport.ConvertDelegate<Canvas.WillRenderCanvases>(action);
-        Canvas.willRenderCanvases += _canvasHandler;
+        var handler = DelegateSupport.ConvertDelegate<Canvas.WillRenderCanvases>(action);
+        if (handler == null) return;
+        _scheduled = true;
+        _canvasHandler = handler;
+        Canvas.willRenderCanvases += handler;
     }
 
     private void OnWillRenderCanvases() {

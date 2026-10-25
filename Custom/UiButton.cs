@@ -12,19 +12,19 @@ namespace DiceModders.UiKit.Custom;
 /// A button dressed with the game's own button skin when it is available, or a managed fallback when the template is
 /// missing. The public API is identical for both; use <see cref="Interactable"/> and <see cref="Selected"/> to drive it.
 /// </summary>
-public sealed class Button : Element {
+public sealed class UiButton : UiElement {
     private readonly UiTheme _theme;
-    private readonly UButton _button;
-    private readonly UIImage _background;
-    private readonly TMP_Text _label;
-    private readonly NativeButton _native;
-    private UIImage _icon;
-    private ClickRelay _relay;
+    private readonly UButton? _button;
+    private readonly UIImage? _background;
+    private readonly TMP_Text? _label;
+    private readonly NativeButton? _native;
+    private UIImage? _icon;
+    private ClickRelay? _relay;
     private bool _selected = true;
-    private string _tooltip;
+    private string? _tooltip;
 
-    internal Button(RectTransform root, UiTheme theme, UButton button, UIImage background,
-                    TMP_Text label, UIImage icon, NativeButton native = null) : base(root) {
+    internal UiButton(RectTransform root, UiTheme theme, UButton? button, UIImage? background,
+                    TMP_Text? label, UIImage? icon, NativeButton? native = null) : base(root) {
         _theme = theme;
         _button = button;
         _background = background;
@@ -33,7 +33,7 @@ public sealed class Button : Element {
         _native = native;
     }
 
-    internal static Button? Create(Container parent, string? text, Action? onClick, string? iconName, bool fixedSize,
+    internal static UiButton? Create(UiContainer parent, string? text, Action? onClick, string? iconName, bool fixedSize,
                                    string? tooltip = null) {
         var runtime = parent.Runtime;
         var theme = parent.Theme;
@@ -79,12 +79,14 @@ public sealed class Button : Element {
         }
     }
 
-    private static Button? FromNative(Container parent, NativeButton native, string? text, bool fixedSize) {
+    private static UiButton? FromNative(UiContainer parent, NativeButton native, string? text, bool fixedSize) {
+        var rt = native.Rt;
+        if (rt == null) return null;
         var label = native.Text;
-        var result = new Button(native.Rt, parent.Theme, native.UnityButton, native.Face, label,
+        var result = new UiButton(rt, parent.Theme, native.UnityButton, native.Face, label,
                                 null, native);
 
-        var layout = UiFactory.Layout(native.Rt);
+        var layout = UiFactory.Layout(rt);
         if (layout != null) {
             layout.minHeight = layout.preferredHeight = NativeButton.SlicedFit;
             layout.flexibleHeight = 0f;
@@ -111,7 +113,7 @@ public sealed class Button : Element {
         return result;
     }
 
-    private static Button? CreateManaged(Container parent, string? text, Action? onClick, string? iconName,
+    private static UiButton? CreateManaged(UiContainer parent, string? text, Action? onClick, string? iconName,
                                          bool fixedSize) {
         var theme = parent.Theme;
         var rect = UiFactory.NewRect("DM Button", parent.Root);
@@ -158,7 +160,7 @@ public sealed class Button : Element {
             label.rectTransform.offsetMin = new Vector2(8f, 0f);
             label.rectTransform.offsetMax = new Vector2(-8f, 0f);
 
-            UIImage icon = null;
+            UIImage? icon = null;
             if (!string.IsNullOrEmpty(iconName)) {
                 var sprite = theme.Icon(iconName);
                 if (sprite != null) {
@@ -178,24 +180,28 @@ public sealed class Button : Element {
             }
 
             var layout = UiFactory.Layout(rect);
-            layout.minHeight = layout.preferredHeight = 32f;
-            layout.flexibleHeight = 0f;
-
-            if (fixedSize) {
-                layout.minWidth = layout.preferredWidth = 32f;
-                layout.flexibleWidth = 0f;
-            }
-            else if (parent.TextSizedButtons) {
-                float width = Mathf.Max(32f, label.GetPreferredValues(text ?? string.Empty, 0f, 0f).x + 24f);
-                layout.minWidth = layout.preferredWidth = width;
-                layout.flexibleWidth = 0f;
-            }
-            else {
-                layout.minWidth = layout.preferredWidth = 0f;
-                layout.flexibleWidth = 1f;
+            if (layout != null) {
+                layout.minHeight = layout.preferredHeight = 32f;
+                layout.flexibleHeight = 0f;
             }
 
-            var result = new Button(rect, theme, button, background, label, icon);
+            if (layout != null) {
+                if (fixedSize) {
+                    layout.minWidth = layout.preferredWidth = 32f;
+                    layout.flexibleWidth = 0f;
+                }
+                else if (parent.TextSizedButtons) {
+                    float width = Mathf.Max(32f, label.GetPreferredValues(text ?? string.Empty, 0f, 0f).x + 24f);
+                    layout.minWidth = layout.preferredWidth = width;
+                    layout.flexibleWidth = 0f;
+                }
+                else {
+                    layout.minWidth = layout.preferredWidth = 0f;
+                    layout.flexibleWidth = 1f;
+                }
+            }
+
+            var result = new UiButton(rect, theme, button, background, label, icon);
             result.OnClick(onClick);
             return result;
         }
@@ -206,13 +212,13 @@ public sealed class Button : Element {
         }
     }
 
-    public Button Text(string? value) {
+    public UiButton Text(string? value) {
         if (_native != null) UiGuard.Run("button.text", () => _native.SetText(value));
         else if (_label != null) UiGuard.Run("button.text", () => _label.text = value ?? string.Empty);
         return this;
     }
 
-    public Button Icon(string? spriteName) {
+    public UiButton Icon(string? spriteName) {
         if (!IsAlive) return this;
         var sprite = _theme.Icon(spriteName);
         if (sprite == null) return this;
@@ -223,6 +229,7 @@ public sealed class Button : Element {
         }
 
         UiGuard.Run("button.icon", () => {
+            if (Root == null) return;
             if (_icon == null) {
                 _icon = UiFactory.AddImage(Root, "DM Icon", sprite, Color.white, false);
                 _icon.type = UIImage.Type.Simple;
@@ -242,35 +249,36 @@ public sealed class Button : Element {
         return this;
     }
 
-    public Button Tooltip(string? text) {
+    public UiButton Tooltip(string? text) {
         _tooltip = text;
         UiGuard.Run("button.tooltip", () => _native?.SetTooltip(text));
         return this;
     }
 
-    public Button Selected(bool selected = true) {
+    public UiButton Selected(bool selected = true) {
         _selected = selected;
         if (_native != null) UiGuard.Run("button.selected", () => _native.SetSelected(selected));
         else UiGuard.Run("button.selected", ApplySelected);
         return this;
     }
 
-    public Button Interactable(bool on = true) {
+    public UiButton Interactable(bool on = true) {
         if (_native != null) UiGuard.Run("button.interactable", () => _native.SetInteractable(on));
         else if (_button != null) UiGuard.Run("button.interactable", () => _button.interactable = on);
         return this;
     }
 
-    public Button OnClick(Action? action) {
+    public UiButton OnClick(Action? action) {
         if (!IsAlive) return this;
         if (_native != null) {
             UiGuard.Run("button.click", () => _native.SetClick(action));
             return this;
         }
 
-        if (_button == null) return this;
+        if (_button == null || Root == null) return this;
+        var root = Root;
         UiGuard.Run("button.click", () => {
-            if (_relay == null) _relay = Root.gameObject.GetComponent<ClickRelay>() ?? Root.gameObject.AddComponent<ClickRelay>();
+            if (_relay == null) _relay = root.gameObject.GetComponent<ClickRelay>() ?? root.gameObject.AddComponent<ClickRelay>();
             ClickRelayRegistry.Bind(_relay, _button, action);
         });
         return this;

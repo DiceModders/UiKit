@@ -12,9 +12,9 @@ namespace DiceModders.UiKit;
 internal sealed class LayerCanvases : IDisposable {
     private readonly UiKitRuntime _runtime;
 
-    private Canvas _behind;
-    private Canvas _game;
-    private Canvas _above;
+    private Canvas? _behind;
+    private Canvas? _game;
+    private Canvas? _above;
     private int _gameOrder;
     private int _behindOrder;
     private int _aboveOrder;
@@ -88,9 +88,9 @@ internal sealed class LayerCanvases : IDisposable {
         var hud = FindHudCanvas();
         ComputeOrders(hud);
 
-        Canvas behind = null;
-        Canvas game = null;
-        Canvas above = null;
+        Canvas? behind = null;
+        Canvas? game = null;
+        Canvas? above = null;
         try {
             behind = Create("DiceModders UiKit [Behind]", Layer.BehindGame, _behindOrder, hud);
             game = Create("DiceModders UiKit [Game]", Layer.Game, _gameOrder, hud);
@@ -114,8 +114,8 @@ internal sealed class LayerCanvases : IDisposable {
         UiLog.Info($"UI layers ready (HUD {hudName}, {mode}, order {_gameOrder - 1}; game {_gameOrder}, behind {_behindOrder}, above {_aboveOrder})");
     }
 
-    private static Canvas Create(string name, Layer layer, int order, Canvas hud) {
-        RectTransform rect = null;
+    private static Canvas Create(string name, Layer layer, int order, Canvas? hud) {
+        RectTransform? rect = null;
         try {
             rect = UiFactory.NewRect(name, null);
             var go = rect.gameObject;
@@ -144,7 +144,7 @@ internal sealed class LayerCanvases : IDisposable {
     /// Matches the HUD's render mode. An overlay canvas always draws over a Screen Space - Camera HUD, even with a negative
     /// sorting order, so the BehindGame layer must use the same camera space as the HUD to actually sit behind it.
     /// </summary>
-    private static void ApplyRenderMode(Canvas canvas, Layer layer, Canvas hud) {
+    private static void ApplyRenderMode(Canvas? canvas, Layer layer, Canvas? hud) {
         if (canvas == null) return;
 
         if (hud == null || hud.renderMode == RenderMode.ScreenSpaceOverlay || hud.worldCamera == null) {
@@ -164,15 +164,15 @@ internal sealed class LayerCanvases : IDisposable {
         };
     }
 
-    private static void ApplyOrder(Canvas canvas, int order) {
+    private static void ApplyOrder(Canvas? canvas, int order) {
         if (canvas != null) canvas.sortingOrder = order;
     }
 
-    private static void ApplySortingLayer(Canvas canvas, Canvas hud) {
+    private static void ApplySortingLayer(Canvas? canvas, Canvas? hud) {
         if (canvas != null && hud != null) canvas.sortingLayerID = hud.sortingLayerID;
     }
 
-    private static void CopyScaler(Canvas source, CanvasScaler target) {
+    private static void CopyScaler(Canvas? source, CanvasScaler? target) {
         if (target == null) return;
 
         var from = source != null ? source.GetComponent<CanvasScaler>() : null;
@@ -196,7 +196,7 @@ internal sealed class LayerCanvases : IDisposable {
         target.defaultSpriteDPI = from.defaultSpriteDPI;
     }
 
-    private void ComputeOrders(Canvas hud) {
+    private void ComputeOrders(Canvas? hud) {
         int hudOrder = hud != null ? hud.sortingOrder : 0;
 
         // Same-order overlay canvases sort by creation order, so the game layer gets the next free
@@ -220,9 +220,9 @@ internal sealed class LayerCanvases : IDisposable {
         _aboveOrder = max + 100;
     }
 
-    private static Canvas FindHudCanvas() {
+    private static Canvas? FindHudCanvas() {
         try {
-            Canvas best = null;
+            Canvas? best = null;
             int bestScore = int.MinValue;
 
             foreach (var canvas in UnityEngine.Object.FindObjectsOfType<Canvas>()) {
@@ -261,7 +261,7 @@ internal sealed class LayerCanvases : IDisposable {
         _initialized = false;
     }
 
-    private static void Destroy(Canvas canvas) {
+    private static void Destroy(Canvas? canvas) {
         if (canvas == null) return;
         UnityEngine.Object.Destroy(canvas.gameObject);
     }

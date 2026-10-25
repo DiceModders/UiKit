@@ -12,21 +12,21 @@ namespace DiceModders.UiKit.Native;
 /// wrapper is removed before the clone wakes up, so its value list and selection callback are not used.
 /// </summary>
 internal sealed class NativeDropdown {
-    public RectTransform Rt { get; private set; }
-    public TMP_Dropdown Dropdown { get; private set; }
+    public RectTransform? Rt { get; private set; }
+    public TMP_Dropdown? Dropdown { get; private set; }
     public int Index { get; private set; }
     public float Height { get; private set; } = 32f;
     public bool IsAlive => Rt != null && Dropdown != null;
 
-    private Action<int> _changed;
-    private UnityAction<int> _unity;
+    private Action<int>? _changed;
+    private UnityAction<int>? _unity;
     private bool _silent;
     private int _count;
 
     private NativeDropdown() { }
 
-    public static NativeDropdown Create(TemplateCatalog templates, Transform parent,
-                                        IEnumerable<string> options, int index) {
+    public static NativeDropdown? Create(TemplateCatalog? templates, Transform? parent,
+                                        IEnumerable<string>? options, int index) {
         var prefab = templates?.Dropdown();
         if (prefab == null) return null;
 
@@ -64,7 +64,7 @@ internal sealed class NativeDropdown {
         return result;
     }
 
-    public void SetChanged(Action<int> changed) {
+    public void SetChanged(Action<int>? changed) {
         _changed = changed;
         if (Dropdown == null) return;
 
@@ -77,11 +77,12 @@ internal sealed class NativeDropdown {
 
         Action<int> handler = OnValueChanged;
         _unity = Il2CppDelegates.ToUnityActionInt(handler);
+        if (_unity == null) return;
         Dropdown.onValueChanged.AddListener(_unity);
-        Il2CppDelegates.Hold(Dropdown.gameObject, new object[] { handler, _unity });
+        Il2CppDelegates.Hold(Dropdown.gameObject, new object?[] { handler, _unity });
     }
 
-    public void SetOptions(IEnumerable<string> options, int index) {
+    public void SetOptions(IEnumerable<string>? options, int index) {
         if (Dropdown == null) return;
 
         var values = new List<string>();
