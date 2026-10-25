@@ -20,39 +20,47 @@ public sealed class Text : Element {
         _wrap = wrap;
     }
 
-    internal static Text Create(RectTransform parent, string value, bool wrap, UiTheme theme) {
+    internal static Text? Create(RectTransform parent, string? value, bool wrap, UiTheme? theme) {
         var rect = UiFactory.NewRect(wrap ? "DM Paragraph" : "DM Label", parent);
-        var text = rect.gameObject.AddComponent<TextMeshProUGUI>();
-        UiFactory.ApplyFont(text, theme);
 
-        text.text = value ?? string.Empty;
-        text.fontSize = 16f;
-        text.alignment = wrap ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.Left;
-        text.color = theme != null ? theme.TextColor : AssetCatalog.DefaultTextColor;
-        text.raycastTarget = false;
-        text.enableWordWrapping = wrap;
-        text.overflowMode = wrap ? TextOverflowModes.Overflow : TextOverflowModes.Ellipsis;
+        try {
+            var text = rect.gameObject.AddComponent<TextMeshProUGUI>();
+            UiFactory.ApplyFont(text, theme);
 
-        var layout = UiFactory.Layout(rect);
-        layout.flexibleWidth = 1f;
-        layout.minWidth = 0f;
-        layout.preferredWidth = 0f;
+            text.text = value ?? string.Empty;
+            text.fontSize = 16f;
+            text.alignment = wrap ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.Left;
+            text.color = theme != null ? theme.TextColor : AssetCatalog.DefaultTextColor;
+            text.raycastTarget = false;
+            text.enableWordWrapping = wrap;
+            text.overflowMode = wrap ? TextOverflowModes.Overflow : TextOverflowModes.Ellipsis;
 
-        float lineHeight = MeasureLineHeight(text);
-        layout.minHeight = layout.preferredHeight = lineHeight;
-        layout.flexibleHeight = 0f;
+            var layout = UiFactory.Layout(rect);
+            layout.flexibleWidth = 1f;
+            layout.minWidth = 0f;
+            layout.preferredWidth = 0f;
 
-        var watcher = rect.gameObject.AddComponent<WidthWatcher>();
-        watcher.Bind(text);
+            float lineHeight = MeasureLineHeight(text);
+            layout.minHeight = layout.preferredHeight = lineHeight;
+            layout.flexibleHeight = 0f;
 
-        var auto = rect.gameObject.AddComponent<AutoHeightText>();
-        auto.Bind(text, layout);
-        auto.SetEnabled(wrap);
+            var watcher = rect.gameObject.AddComponent<WidthWatcher>();
+            watcher.Bind(text);
 
-        return new Text(rect, text, auto, wrap);
+            var auto = rect.gameObject.AddComponent<AutoHeightText>();
+            auto.Bind(text, layout);
+            auto.SetEnabled(wrap);
+
+            return new Text(rect, text, auto, wrap);
+        }
+        catch (Exception e) {
+            UiGuard.Report("text.create", e);
+            UiFactory.Destroy(rect.gameObject);
+            return null;
+        }
     }
 
-    internal static float MeasureLineHeight(TMP_Text text) {
+    internal static float MeasureLineHeight(TMP_Text? text) {
         if (text == null) return 24f;
         float height = text.GetPreferredValues("Ag", 100000f, 0f).y;
         return Mathf.Ceil(Mathf.Max(height, text.fontSize * 1.5f)) + 1f;
@@ -62,12 +70,14 @@ public sealed class Text : Element {
         get => _text != null ? _text.text : string.Empty;
         set {
             if (_text == null) return;
-            _text.text = value ?? string.Empty;
-            if (_wrap) _auto?.MeasureNow();
-            else {
-                _text.SetAllDirty();
-                _text.ForceMeshUpdate();
-            }
+            UiGuard.Run("text.value", () => {
+                _text.text = value ?? string.Empty;
+                if (_wrap) _auto?.MeasureNow();
+                else {
+                    _text.SetAllDirty();
+                    _text.ForceMeshUpdate();
+                }
+            });
         }
     }
 
@@ -75,12 +85,13 @@ public sealed class Text : Element {
         if (_text == null || _wrap == on) return this;
         _wrap = on;
 
-        _text.enableWordWrapping = on;
-        _text.overflowMode = on ? TextOverflowModes.Overflow : TextOverflowModes.Ellipsis;
-        _auto?.SetEnabled(on);
+        UiGuard.Run("text.wrap", () => {
+            _text.enableWordWrapping = on;
+            _text.overflowMode = on ? TextOverflowModes.Overflow : TextOverflowModes.Ellipsis;
+            _auto?.SetEnabled(on);
 
-        var layout = Layout;
-        if (layout != null) {
+            var layout = Layout;
+            if (layout == null) return;
             layout.flexibleWidth = 1f;
             layout.minWidth = 0f;
             layout.preferredWidth = 0f;
@@ -95,32 +106,36 @@ public sealed class Text : Element {
                 float height = MeasureLineHeight(_text);
                 layout.minHeight = layout.preferredHeight = height;
             }
-        }
+        });
 
         return this;
     }
 
     public Text Align(TextAlignmentOptions alignment) {
-        if (_text != null) _text.alignment = alignment;
+        if (_text == null) return this;
+        UiGuard.Run("text.align", () => _text.alignment = alignment);
         return this;
     }
 
     public Text Color(Color color) {
-        if (_text != null) _text.color = color;
+        if (_text == null) return this;
+        UiGuard.Run("text.color", () => _text.color = color);
         return this;
     }
 
     public Text Size(float fontSize) {
         if (_text == null) return this;
-        _text.fontSize = fontSize;
-        if (_wrap) _auto?.MeasureNow();
-        else {
-            var layout = Layout;
-            if (layout != null) {
-                float height = MeasureLineHeight(_text);
-                layout.minHeight = layout.preferredHeight = height;
+        UiGuard.Run("text.size", () => {
+            _text.fontSize = UiGuard.Finite(fontSize, 16f);
+            if (_wrap) _auto?.MeasureNow();
+            else {
+                var layout = Layout;
+                if (layout != null) {
+                    float height = MeasureLineHeight(_text);
+                    layout.minHeight = layout.preferredHeight = height;
+                }
             }
-        }
+        });
         return this;
     }
 }

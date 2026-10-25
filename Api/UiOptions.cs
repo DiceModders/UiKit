@@ -1,7 +1,7 @@
 namespace DiceModders.UiKit;
 
-/// <summary>Process-wide settings of the library.</summary>
-public sealed class UiOptions {
+/// <summary>Process-wide settings of the library. Host-only: mods never create a runtime or options.</summary>
+internal sealed class UiOptions {
     /// <summary>How custom widgets are dressed. Native-first with a managed fallback by default.</summary>
     public TemplatePolicy Templates { get; init; } = TemplatePolicy.PreferNative;
 

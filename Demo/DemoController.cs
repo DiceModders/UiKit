@@ -15,8 +15,8 @@ internal sealed class DemoController {
 
     private readonly UiKitRuntime _runtime;
     private readonly List<Window> _windows = new();
-    private UiScope _scope;
-    private Window _main;
+    private UiScope? _scope;
+    private Window? _main;
     private bool _requested;
     private bool _visible;
     private bool _built;
@@ -30,7 +30,8 @@ internal sealed class DemoController {
 
     public void Show() {
         _requested = true;
-        if (!_built || _scope == null) {
+        if (!_built || _scope == null || _main == null || !_main.IsAlive) {
+            DestroyScope();
             Build();
             return;
         }
@@ -56,16 +57,23 @@ internal sealed class DemoController {
 
     public void OnSceneLoaded() {
         if (!_requested) return;
-        if (GameUi.FindActiveBar() == null) {
-            UiLog.Info("demo is enabled and will be created after a scene with the game UI loads");
-            return;
-        }
 
-        // The canvas found during sceneLoaded can still be the previous scene's. Now that the game's bar exists,
-        // re-read its render mode and sorting orders before building or keeping the demo on screen.
-        _runtime.Layers.Refresh();
-        if (_built) return;
-        Build();
+        try {
+            if (GameUi.FindActiveBar() == null) {
+                UiLog.Info("demo is enabled and will be created after a scene with the game UI loads");
+                return;
+            }
+
+            // The canvas found during sceneLoaded can still be the previous scene's. Now that the game's bar exists,
+            // re-read its render mode and sorting orders before building or keeping the demo on screen.
+            _runtime.Layers.Refresh();
+            if (_built && _main != null && _main.IsAlive) return;
+            DestroyScope();
+            Build();
+        }
+        catch (Exception e) {
+            UiLog.Error("demo scene hook failed: " + e);
+        }
     }
 
     public void Dispose() {
@@ -78,13 +86,19 @@ internal sealed class DemoController {
 
         try {
             _runtime.Layers.Refresh();
-            _scope = _runtime.CreateScope(DemoScopeId);
+            var scope = _runtime.CreateScope(DemoScopeId);
+            if (scope == null) {
+                UiLog.Error("demo could not create its UiKit scope");
+                return;
+            }
+
+            _scope = scope;
             _built = true;
             _visible = true;
             _windows.Clear();
 
             BuildMain();
-            _scope.Native.TopBar.AddIconButton("hammer", "UiKit demo", Toggle);
+            scope.Native.TopBar.AddIconButton("hammer", "UiKit demo", Toggle);
             BuildDemoSettings();
             BuildProbe(Layer.Game, "This window is on Layer.Game. It should sit in the HUD band, below the game's popups.",
                        new Vector2(700f, 80f), OrnamentStyle.BorderWithTwoCorners);
@@ -120,29 +134,29 @@ internal sealed class DemoController {
                 body.Text($"Template policy: {_runtime.Options.Templates}");
 
                 status = body.Text("Ready.");
-                status.Color(new Color(0.95f, 0.83f, 0.55f, 1f));
+                status?.Color(new Color(0.95f, 0.83f, 0.55f, 1f));
 
                 body.Separator();
                 body.Text("Buttons");
                 body.Row(row => {
-                    row.Button("Click me", () => status.Value = "Text button clicked.");
+                    row.Button("Click me", () => { if (status != null) status.Value = "Text button clicked."; });
                     var disabled = row.Button("Disabled");
                     disabled?.Interactable(false);
-                    row.IconButton("hammer", () => status.Value = "Icon button clicked.", "UiKit demo icon button");
+                    row.IconButton("hammer", () => { if (status != null) status.Value = "Icon button clicked."; }, "UiKit demo icon button");
                 });
 
                 body.Text("Toggle, slider and dropdown");
-                body.Toggle("Toggle me", true, value => status.Value = "Toggle: " + value);
-                var slider = body.Slider(0f, 100f, 50f, value => status.Value = "Slider: " + value.ToString("0"));
+                body.Toggle("Toggle me", true, value => { if (status != null) status.Value = "Toggle: " + value; });
+                var slider = body.Slider(0f, 100f, 50f, value => { if (status != null) status.Value = "Slider: " + value.ToString("0"); });
                 slider?.Format("0");
                 body.Dropdown(new[] { "First option", "Second option", "Third option" }, 0,
-                              index => status.Value = "Dropdown index: " + index);
+                              index => { if (status != null) status.Value = "Dropdown index: " + index; });
 
                 body.Text("Grid");
                 body.Grid(3, 90f, 32f, grid => {
                     for (int i = 0; i < 6; i++) {
                         int number = i;
-                        grid.Button(number.ToString(), () => status.Value = "Grid button " + number);
+                        grid.Button(number.ToString(), () => { if (status != null) status.Value = "Grid button " + number; });
                     }
                 }).Height(72f);
 
@@ -168,7 +182,9 @@ internal sealed class DemoController {
     }
 
     private void BuildDemoSettings() {
-        _scope.Native.Settings.AddTab("uikit.demo", "UiKit", tab => {
+        var scope = _scope;
+        if (scope == null) return;
+        scope.Native.Settings.AddTab("uikit.demo", "UiKit", tab => {
             tab.AddHeader("UiKit native settings");
             tab.AddToggle("Demo toggle", true, value => UiLog.Info("demo settings toggle: " + value));
             tab.AddSlider("Demo slider", 0f, 100f, 50f, value => UiLog.Info("demo settings slider: " + value.ToString("0")), "0");
@@ -179,7 +195,9 @@ internal sealed class DemoController {
     }
 
     private void BuildProbe(Layer layer, string text, Vector2 position, OrnamentStyle ornament) {
-        var probe = _scope.Custom.Window(w => {
+        var scope = _scope;
+        if (scope == null) return;
+        var probe = scope.Custom.Window(w => {
             w.Title("Layer." + layer)
              .Size(340f, 240f)
              .Position(position.x, position.y)

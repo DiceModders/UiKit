@@ -7,6 +7,8 @@
     <Version>1.0.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
+    <!-- Annotations are enabled incrementally; the full warning set is a later cleanup task. -->
+    <Nullable>annotations</Nullable>
     <RestoreAdditionalProjectSources>
       https://api.nuget.org/v3/index.json;
       https://nuget.bepinex.dev/v3/index.json;

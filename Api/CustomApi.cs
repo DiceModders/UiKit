@@ -11,21 +11,33 @@ public sealed class CustomApi {
 
     public UiTheme Theme => _scope.Runtime.Theme;
 
-    public Window Window(Action<Window> build = null) {
-        if (_scope.IsDisposed) throw new ObjectDisposedException(nameof(UiScope));
+    /// <summary>
+    /// Creates a window and lets the caller build its content. Returns <c>null</c> when the scope is gone or the build
+    /// callback fails; a failed window is disposed before returning, so no half-built window leaks.
+    /// </summary>
+    public Window? Window(Action<Window>? build = null) {
+        if (!_scope.IsAlive) {
+            UiLog.OnceError("custom:disposed-scope", "cannot create a window in a disposed scope");
+            return null;
+        }
 
-        var window = new Window(_scope);
+        var window = UiGuard.Func("window.create", () => new Window(_scope), _scope.Id);
+        if (window == null) return null;
+
         _scope.Owned.Add(window);
 
         try {
             build?.Invoke(window);
             window.FinalizeBuild();
-            return window;
+            if (window.IsAlive) return window;
+
+            UiGuard.Run("window.cleanup", window.Dispose, _scope.Id);
+            return null;
         }
         catch (Exception e) {
-            UiLog.Error($"window build failed: {e}");
-            window.Dispose();
-            throw;
+            UiGuard.Report("window.build", e, _scope.Id);
+            UiGuard.Run("window.cleanup", window.Dispose, _scope.Id);
+            return null;
         }
     }
 }

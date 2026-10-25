@@ -1,0 +1,2 @@
+# UiKit.csproj is maintained with CRLF line endings; treat the CR as a terminator, not trailing whitespace.
+*.csproj whitespace=cr-at-eol

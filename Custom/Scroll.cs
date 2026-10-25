@@ -16,77 +16,88 @@ public sealed class Scroll : Element {
         _content = content;
     }
 
-    internal static Scroll Create(Container parent, Action<Container> build) {
+    internal static Scroll? Create(Container parent, Action<Container>? build) {
         var theme = parent.Theme;
 
         var root = UiFactory.NewRect("DM ScrollView", parent.Root);
-        var rootLayout = UiFactory.Layout(root);
-        rootLayout.minHeight = 60f;
-        rootLayout.flexibleWidth = 1f;
-        rootLayout.flexibleHeight = 1f;
+        try {
+            var rootLayout = UiFactory.Layout(root);
+            rootLayout.minHeight = 60f;
+            rootLayout.flexibleWidth = 1f;
+            rootLayout.flexibleHeight = 1f;
 
-        var rootImage = root.gameObject.AddComponent<UIImage>();
-        rootImage.color = new Color(0f, 0f, 0f, 0f);
-        rootImage.raycastTarget = true;
+            var rootImage = root.gameObject.AddComponent<UIImage>();
+            rootImage.color = new Color(0f, 0f, 0f, 0f);
+            rootImage.raycastTarget = true;
 
-        var scroll = root.gameObject.AddComponent<ScrollRect>();
-        scroll.horizontal = false;
-        scroll.vertical = true;
-        scroll.movementType = ScrollRect.MovementType.Clamped;
-        scroll.inertia = true;
-        scroll.scrollSensitivity = 30f;
+            var scroll = root.gameObject.AddComponent<ScrollRect>();
+            scroll.horizontal = false;
+            scroll.vertical = true;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+            scroll.inertia = true;
+            scroll.scrollSensitivity = 30f;
 
-        var viewport = UiFactory.NewRect("DM Viewport", root);
-        UiFactory.Stretch(viewport);
-        viewport.offsetMax = new Vector2(-14f, 0f);
-        viewport.gameObject.AddComponent<RectMask2D>();
-        var viewportImage = viewport.gameObject.AddComponent<UIImage>();
-        viewportImage.color = new Color(0f, 0f, 0f, 0f);
-        viewportImage.raycastTarget = true;
+            var viewport = UiFactory.NewRect("DM Viewport", root);
+            UiFactory.Stretch(viewport);
+            viewport.offsetMax = new Vector2(-14f, 0f);
+            viewport.gameObject.AddComponent<RectMask2D>();
+            var viewportImage = viewport.gameObject.AddComponent<UIImage>();
+            viewportImage.color = new Color(0f, 0f, 0f, 0f);
+            viewportImage.raycastTarget = true;
 
-        var content = UiFactory.NewRect("DM Content", viewport);
-        content.anchorMin = new Vector2(0f, 1f);
-        content.anchorMax = new Vector2(1f, 1f);
-        content.pivot = new Vector2(0.5f, 1f);
-        content.offsetMin = Vector2.zero;
-        content.offsetMax = Vector2.zero;
+            var content = UiFactory.NewRect("DM Content", viewport);
+            content.anchorMin = new Vector2(0f, 1f);
+            content.anchorMax = new Vector2(1f, 1f);
+            content.pivot = new Vector2(0.5f, 1f);
+            content.offsetMin = Vector2.zero;
+            content.offsetMax = Vector2.zero;
 
-        var layout = content.gameObject.AddComponent<VerticalLayoutGroup>();
-        layout.spacing = 6f;
-        layout.padding = new RectOffset(0, 0, 0, 0);
-        layout.childAlignment = TextAnchor.UpperLeft;
-        layout.childControlWidth = true;
-        layout.childControlHeight = true;
-        layout.childForceExpandWidth = true;
-        layout.childForceExpandHeight = false;
+            var layout = content.gameObject.AddComponent<VerticalLayoutGroup>();
+            layout.spacing = 6f;
+            layout.padding = new RectOffset(0, 0, 0, 0);
+            layout.childAlignment = TextAnchor.UpperLeft;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
 
-        var fitter = content.gameObject.AddComponent<ContentSizeFitter>();
-        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            var fitter = content.gameObject.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-        scroll.viewport = viewport;
-        scroll.content = content;
+            scroll.viewport = viewport;
+            scroll.content = content;
 
-        var scrollbar = BuildScrollbar(root, parent.Runtime);
-        if (scrollbar != null) {
-            scroll.verticalScrollbar = scrollbar;
-            scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
-            scroll.verticalScrollbarSpacing = 4f;
+            var scrollbar = BuildScrollbar(root, parent.Runtime);
+            if (scrollbar != null) {
+                scroll.verticalScrollbar = scrollbar;
+                scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
+                scroll.verticalScrollbarSpacing = 4f;
 
-            var barRect = scrollbar.GetComponent<RectTransform>();
-            float barWidth = barRect != null ? Mathf.Max(barRect.rect.width, barRect.sizeDelta.x) : 14f;
-            viewport.offsetMax = new Vector2(-Mathf.Max(14f, barWidth + 4f), 0f);
+                var barRect = scrollbar.GetComponent<RectTransform>();
+                float barWidth = barRect != null ? Mathf.Max(barRect.rect.width, barRect.sizeDelta.x) : 14f;
+                viewport.offsetMax = new Vector2(-Mathf.Max(14f, barWidth + 4f), 0f);
+            }
+
+            var pin = content.gameObject.AddComponent<ScrollPin>();
+            pin.Bind(scroll);
+
+            var container = new Container(content, layout, theme, parent.Runtime);
+            build?.Invoke(container);
+            if (!container.IsAlive) {
+                UiFactory.Destroy(root.gameObject);
+                return null;
+            }
+
+            return new Scroll(root, scroll, container);
         }
-
-        var pin = content.gameObject.AddComponent<ScrollPin>();
-        pin.Bind(scroll);
-
-        var container = new Container(content, layout, theme, parent.Runtime);
-        build?.Invoke(container);
-
-        return new Scroll(root, scroll, container);
+        catch (Exception e) {
+            UiGuard.Report("scroll.create", e);
+            UiFactory.Destroy(root.gameObject);
+            return null;
+        }
     }
 
-    private static Scrollbar BuildScrollbar(RectTransform root, UiKitRuntime runtime) {
+    private static Scrollbar? BuildScrollbar(RectTransform root, UiKitRuntime runtime) {
         if (SkinPolicy.AllowNative(runtime)) {
             var native = SkinPolicy.TryNative("scrollbar", () =>
                 NativeScrollbar.Create(runtime.Templates, root));
@@ -131,7 +142,7 @@ public sealed class Scroll : Element {
         get => _scroll != null ? 1f - _scroll.verticalNormalizedPosition : 0f;
         set {
             if (_scroll == null) return;
-            _scroll.verticalNormalizedPosition = 1f - Mathf.Clamp01(value);
+            UiGuard.Run("scroll.position", () => _scroll.verticalNormalizedPosition = 1f - Mathf.Clamp01(value));
         }
     }
 
@@ -141,8 +152,10 @@ public sealed class Scroll : Element {
     }
 
     public Scroll ToBottom() {
-        Canvas.ForceUpdateCanvases();
-        Position = 1f;
+        UiGuard.Run("scroll.to-bottom", () => {
+            Canvas.ForceUpdateCanvases();
+            Position = 1f;
+        });
         return this;
     }
 }

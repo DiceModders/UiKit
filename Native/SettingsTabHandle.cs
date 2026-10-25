@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using TMPro;
 using UnityEngine;
@@ -27,8 +28,9 @@ public sealed class SettingsTabHandle : IDisposable {
     private readonly Action<SettingsTabHandle> _onDispose;
     private readonly List<SettingsRow> _rows = new();
 
-    private SettingsTabView _view;
+    private SettingsTabView? _view;
     private bool _disposed;
+    private bool _detachedForScene;
 
     internal SettingsTabHandle(UiScope scope, NativeUiHost host, string id, string title,
                                Action<SettingsTabHandle> onDispose) {
@@ -41,19 +43,23 @@ public sealed class SettingsTabHandle : IDisposable {
 
     public string Id { get; }
     public string Title { get; }
-    public bool IsAlive => !_disposed && _view != null && _view.IsAlive;
+    public bool IsAlive => !_disposed && !_detachedForScene && _view != null && _view.IsAlive;
+    internal bool IsDisposed => _disposed;
 
     /// <summary>Selects this tab if the settings screen is currently available.</summary>
-    public void Select() => _view?.Select();
+    public void Select() {
+        if (_disposed) return;
+        UiGuard.Run("settings.select", () => _view?.Select(), _scope.Id);
+    }
 
-    public SettingsRow AddHeader(string text) {
+    public SettingsRow? AddHeader(string? text) {
         var row = NewRow(SettingsRowKind.Header, text);
         if (row == null) return null;
         if (IsAlive) BuildRow(row);
         return row;
     }
 
-    public SettingsRow AddToggle(string label, bool value, Action<bool> changed) {
+    public SettingsRow? AddToggle(string? label, bool value, Action<bool>? changed) {
         var row = NewRow(SettingsRowKind.Toggle, label);
         if (row == null) return null;
         row.BoolValue = value;
@@ -62,30 +68,35 @@ public sealed class SettingsTabHandle : IDisposable {
         return row;
     }
 
-    public SettingsRow AddSlider(string label, float min, float max, float value, Action<float> changed,
-                                 string format = "0.##") {
+    public SettingsRow? AddSlider(string? label, float min, float max, float value, Action<float>? changed,
+                                  string? format = "0.##") {
         var row = NewRow(SettingsRowKind.Slider, label);
         if (row == null) return null;
-        row.Min = min;
-        row.Max = max > min ? max : min + 1f;
-        row.FloatValue = Mathf.Clamp(value, row.Min, row.Max);
-        row.Format = string.IsNullOrEmpty(format) ? "0.##" : format;
+        row.Min = UiGuard.Finite(min, 0f);
+        row.Max = UiGuard.Finite(max, row.Min + 1f);
+        if (row.Max <= row.Min) row.Max = row.Min + 1f;
+        row.FloatValue = Mathf.Clamp(UiGuard.Finite(value, row.Min), row.Min, row.Max);
+        row.Format = SafeFormat(format);
         row.FloatChanged = changed;
         if (IsAlive) BuildRow(row);
         return row;
     }
 
-    public SettingsRow AddDropdown(string label, IEnumerable<string> options, int index, Action<int> changed) {
+    public SettingsRow? AddDropdown(string? label, IEnumerable<string>? options, int index, Action<int>? changed) {
         var row = NewRow(SettingsRowKind.Dropdown, label);
         if (row == null) return null;
-        row.Options = Normalize(options);
+        try { row.Options = Normalize(options); }
+        catch (Exception e) {
+            UiGuard.Report("settings.dropdown-options", e, _scope.Id);
+            row.Options = new List<string> { string.Empty };
+        }
         row.Index = Mathf.Clamp(index, 0, Mathf.Max(0, row.Options.Count - 1));
         row.IntChanged = changed;
         if (IsAlive) BuildRow(row);
         return row;
     }
 
-    public SettingsRow AddButton(string label, string buttonText, Action clicked) {
+    public SettingsRow? AddButton(string? label, string? buttonText, Action? clicked) {
         var row = NewRow(SettingsRowKind.Button, label);
         if (row == null) return null;
         row.ButtonText = string.IsNullOrWhiteSpace(buttonText) ? "Open" : buttonText;
@@ -94,7 +105,7 @@ public sealed class SettingsTabHandle : IDisposable {
         return row;
     }
 
-    private SettingsRow NewRow(SettingsRowKind kind, string label) {
+    private SettingsRow? NewRow(SettingsRowKind kind, string? label) {
         if (_disposed) {
             UiLog.OnceError("settings:disposed", "cannot add a settings row to a disposed tab");
             return null;
@@ -104,11 +115,11 @@ public sealed class SettingsTabHandle : IDisposable {
         return row;
     }
 
-    internal void Refresh(GameSettings settings) {
+    internal void Refresh(GameSettings? settings) {
         if (_disposed) return;
 
-        if (_view != null && _view.IsAlive) {
-            if (_view.Settings == settings) return;
+        if (_view != null) {
+            if (!_detachedForScene && settings != null && _view.IsAlive && _view.Settings == settings) return;
             Detach();
         }
 
@@ -116,7 +127,7 @@ public sealed class SettingsTabHandle : IDisposable {
 
         try { Attach(settings); }
         catch (Exception e) {
-            UiLog.OnceError("settings:attach:" + Id, $"could not add settings tab '{Id}': {e}");
+            UiGuard.Report("settings.attach", e, _scope.Id);
             Detach();
         }
     }
@@ -138,177 +149,232 @@ public sealed class SettingsTabHandle : IDisposable {
             return;
         }
 
-        var titleGo = UnityEngine.Object.Instantiate(titleTemplate.gameObject, Staging.Root);
-        titleGo.name = "DM Settings Tab " + Id;
-        NativeButton.StripForeign(titleGo);
-        var tabTitle = titleGo.GetComponent<GameTabTitle>();
-        DestroyLabel(titleGo);
-        SetText(titleGo, Title);
-        if (tabTitle != null) tabTitle.Selected = false;
-        titleGo.transform.SetParent(titlesRoot, false);
-        titleGo.SetActive(true);
+        GameObject? titleGo = null;
+        GameObject? pageGo = null;
+        GameTabTitle? tabTitle = null;
 
-        var pageGo = UnityEngine.Object.Instantiate(pageTemplate.gameObject, Staging.Root);
-        pageGo.name = "DM Settings Page " + Id;
-        var page = pageGo.GetComponent<GameSettingSet>();
-        RectTransform holder = page != null ? page.holder : null;
-        GameSettingEntry entryPrefab = page != null ? page.settingEntryInterfacePrefab : null;
-        GameLabel headerPrefab = page != null ? page.headerPrefab : null;
-        if (page != null) UnityEngine.Object.DestroyImmediate(page);
-        if (holder == null) holder = FindHolder(pageGo.transform);
+        try {
+            titleGo = UnityEngine.Object.Instantiate(titleTemplate.gameObject, Staging.Root);
+            titleGo.name = "DM Settings Tab " + Id;
+            NativeButton.StripForeign(titleGo);
+            tabTitle = titleGo.GetComponent<GameTabTitle>();
+            if (tabTitle == null) {
+                UnityEngine.Object.Destroy(titleGo);
+                titleGo = null;
+                MissingTemplate();
+                return;
+            }
 
-        if (holder == null || entryPrefab == null) {
-            UnityEngine.Object.Destroy(titleGo);
-            UnityEngine.Object.Destroy(pageGo);
-            MissingTemplate();
-            return;
+            DestroyLabel(titleGo);
+            SetText(titleGo, Title);
+            tabTitle.Selected = false;
+            titleGo.transform.SetParent(titlesRoot, false);
+            titleGo.SetActive(true);
+
+            pageGo = UnityEngine.Object.Instantiate(pageTemplate.gameObject, Staging.Root);
+            pageGo.name = "DM Settings Page " + Id;
+            var page = pageGo.GetComponent<GameSettingSet>();
+            RectTransform? holder = page != null ? page.holder : null;
+            GameSettingEntry? entryPrefab = page != null ? page.settingEntryInterfacePrefab : null;
+            GameLabel? headerPrefab = page != null ? page.headerPrefab : null;
+            if (page != null) UnityEngine.Object.DestroyImmediate(page);
+            if (holder == null) holder = FindHolder(pageGo.transform);
+
+            if (holder == null || entryPrefab == null) {
+                UnityEngine.Object.Destroy(titleGo);
+                titleGo = null;
+                UnityEngine.Object.Destroy(pageGo);
+                pageGo = null;
+                MissingTemplate();
+                return;
+            }
+
+            Clear(holder);
+            pageGo.transform.SetParent(contentsRoot, false);
+            pageGo.SetActive(false);
+
+            var pageRt = pageGo.GetComponent<RectTransform>();
+            if (pageRt == null) {
+                UnityEngine.Object.Destroy(titleGo);
+                titleGo = null;
+                UnityEngine.Object.Destroy(pageGo);
+                pageGo = null;
+                MissingTemplate();
+                return;
+            }
+
+            var view = new SettingsTabView(settings, tabArea, titleGo, pageGo, holder, entryPrefab, headerPrefab, tabTitle);
+            AppendTab(tabArea, tabTitle, pageRt);
+            _view = view;
+            foreach (var row in _rows) BuildRow(row);
         }
-
-        Clear(holder);
-        pageGo.transform.SetParent(contentsRoot, false);
-        pageGo.SetActive(false);
-
-        var pageRt = pageGo.GetComponent<RectTransform>();
-        AppendTab(tabArea, tabTitle, pageRt);
-
-        _view = new SettingsTabView(settings, tabArea, titleGo, pageGo, holder, entryPrefab, headerPrefab, tabTitle);
-        foreach (var row in _rows) BuildRow(row);
+        catch {
+            if (_view != null) {
+                Detach();
+            }
+            else {
+                // AppendTab may have partially registered the tab before throwing. RemoveTab checks the current
+                // definitions and destroys both objects, so a failed attach cannot leave a ghost native tab.
+                UiGuard.Run("settings.rollback", () => RemoveTab(tabArea, tabTitle, titleGo, pageGo), _scope.Id);
+            }
+            throw;
+        }
     }
 
     private void BuildRow(SettingsRow row) {
-        if (_view == null || !_view.IsAlive || row == null) return;
+        var tabView = _view;
+        if (tabView == null || !tabView.IsAlive || row == null) return;
 
-        SettingsRowView view;
-        try { view = BuildVisual(row); }
+        SettingsRowView? view;
+        try { view = BuildVisual(row, tabView); }
         catch (Exception e) {
-            UiLog.OnceError("settings:row:" + Id, $"could not build settings row '{row.Label}': {e}");
+            UiGuard.Report("settings.row", e, _scope.Id);
             return;
         }
         if (view == null) return;
 
-        row.Attach(view);
-        _view.Views.Add(view);
+        try {
+            row.Attach(view);
+            tabView.Views.Add(view);
+        }
+        catch (Exception e) {
+            UiGuard.Report("settings.row.attach", e, _scope.Id);
+            row.ResetView();
+            view.Destroy();
+        }
     }
 
-    private SettingsRowView BuildVisual(SettingsRow row) {
+    private SettingsRowView? BuildVisual(SettingsRow row, SettingsTabView tabView) {
         var runtime = _scope.Runtime;
-        var holder = _view.Holder;
+        var holder = tabView.Holder;
 
         if (row.Kind == SettingsRowKind.Header) {
-            if (_view.HeaderPrefab == null) {
+            if (tabView.HeaderPrefab == null) {
                 UiLog.OnceError("settings:no-header", "settings header template is unavailable");
                 return null;
             }
 
-            var go = UnityEngine.Object.Instantiate(_view.HeaderPrefab.gameObject, Staging.Root);
-            go.name = "DM Settings Header";
-            NativeButton.StripForeign(go);
-            DestroyLabel(go);
-            SetText(go, row.Label);
-            go.transform.SetParent(holder, false);
-            go.SetActive(true);
-            return new SettingsRowView { Go = go };
+            var go = UnityEngine.Object.Instantiate(tabView.HeaderPrefab.gameObject, Staging.Root);
+            try {
+                go.name = "DM Settings Header";
+                NativeButton.StripForeign(go);
+                DestroyLabel(go);
+                SetText(go, row.Label);
+                go.transform.SetParent(holder, false);
+                go.SetActive(true);
+                return new SettingsRowView { Go = go };
+            }
+            catch {
+                if (go != null) UnityEngine.Object.Destroy(go);
+                throw;
+            }
         }
 
-        var entryGo = UnityEngine.Object.Instantiate(_view.EntryPrefab.gameObject, Staging.Root);
-        entryGo.name = "DM Settings Row";
-        NativeButton.StripForeign(entryGo);
-        var entry = entryGo.GetComponent<GameSettingEntry>();
-        var content = entry != null ? entry.contentHolder : null;
-        DestroyLabel(entryGo);
-        SetText(entryGo, row.Label);
-        AddLabelGap(entryGo);
-        if (content == null) {
-            UnityEngine.Object.Destroy(entryGo);
-            UiLog.OnceError("settings:no-content", "settings entry prefab has no content holder");
-            return null;
-        }
+        var entryGo = UnityEngine.Object.Instantiate(tabView.EntryPrefab.gameObject, Staging.Root);
+        try {
+            entryGo.name = "DM Settings Row";
+            NativeButton.StripForeign(entryGo);
+            var entry = entryGo.GetComponent<GameSettingEntry>();
+            var content = entry != null ? entry.contentHolder : null;
+            DestroyLabel(entryGo);
+            SetText(entryGo, row.Label);
+            AddLabelGap(entryGo);
+            if (content == null) {
+                UnityEngine.Object.Destroy(entryGo);
+                UiLog.OnceError("settings:no-content", "settings entry prefab has no content holder");
+                return null;
+            }
 
-        entryGo.transform.SetParent(holder, false);
-        entryGo.SetActive(true);
+            entryGo.transform.SetParent(holder, false);
+            entryGo.SetActive(true);
 
-        var view = new SettingsRowView { Go = entryGo };
-        switch (row.Kind) {
-            case SettingsRowKind.Toggle: {
-                NativeToggle toggle = null;
-                toggle = SkinPolicy.TryNative("settings toggle", () =>
-                    NativeToggle.Create(runtime.Templates, content, row.BoolValue, value => {
-                        row.BoolValue = value;
-                        try { row.BoolChanged?.Invoke(value); }
-                        catch (Exception e) { UiLog.Error("settings toggle: " + e); }
-                    }));
-                if (toggle != null) {
-                    view.Toggle = toggle;
-                    var toggleRt = toggle.Go.GetComponent<RectTransform>();
-                    SetControlSize(toggleRt, 28f, 28f, false);
-                    AlignControlLeft(toggleRt);
-                }
-                else {
-                    UiLog.OnceError("settings:no-toggle", "native toggle template is unavailable");
-                }
-                break;
-            }
-            case SettingsRowKind.Slider: {
-                NativeSlider slider = null;
-                slider = SkinPolicy.TryNative("settings slider", () =>
-                    NativeSlider.Create(runtime.Templates, content, row.Min, row.Max, row.FloatValue));
-                if (slider != null) {
-                    slider.SetFormat(row.Format);
-                    slider.SetChanged(value => {
-                        row.FloatValue = value;
-                        try { row.FloatChanged?.Invoke(value); }
-                        catch (Exception e) { UiLog.Error("settings slider: " + e); }
-                    });
-                    view.Slider = slider;
-                    SetControlSize(slider.Rt, SliderWidth, slider.Height, false);
-                    AlignControlLeft(slider.Rt);
-                }
-                else {
-                    UiLog.OnceError("settings:no-slider", "native slider template is unavailable");
-                }
-                break;
-            }
-            case SettingsRowKind.Dropdown: {
-                NativeDropdown dropdown = null;
-                dropdown = SkinPolicy.TryNative("settings dropdown", () =>
-                    NativeDropdown.Create(runtime.Templates, content, row.Options, row.Index));
-                if (dropdown != null) {
-                    dropdown.SetChanged(index => {
-                        row.Index = index;
-                        try { row.IntChanged?.Invoke(index); }
-                        catch (Exception e) { UiLog.Error("settings dropdown: " + e); }
-                    });
-                    view.Dropdown = dropdown;
-                    SetControlSize(dropdown.Rt, 220f, dropdown.Height, false);
-                    AlignControlLeft(dropdown.Rt);
-                }
-                else {
-                    UiLog.OnceError("settings:no-dropdown", "native dropdown template is unavailable");
-                }
-                break;
-            }
-            case SettingsRowKind.Button: {
-                NativeButton button = null;
-                button = SkinPolicy.TryNative("settings button", () =>
-                    NativeButton.CreateLabel(runtime.Templates, content, "DM Settings Button", row.ButtonText, 16f,
-                        () => {
-                            try { row.Clicked?.Invoke(); }
-                            catch (Exception e) { UiLog.Error("settings button: " + e); }
+            var view = new SettingsRowView { Go = entryGo };
+            switch (row.Kind) {
+                case SettingsRowKind.Toggle: {
+                    NativeToggle? toggle = null;
+                    toggle = SkinPolicy.TryNative("settings toggle", () =>
+                        NativeToggle.Create(runtime.Templates, content, row.BoolValue, value => {
+                            row.BoolValue = value;
+                            try { row.BoolChanged?.Invoke(value); }
+                            catch (Exception e) { UiGuard.Report("settings.toggle", e, _scope.Id); }
                         }));
-                if (button != null) {
-                    button.SetSize(110f, NativeButton.SlicedFit);
-                    AlignControlLeft(button.Rt);
-                    button.SetInteractable(row.Enabled);
-                    view.Button = button;
+                    if (toggle != null) {
+                        view.Toggle = toggle;
+                        var toggleRt = toggle.Go.GetComponent<RectTransform>();
+                        SetControlSize(toggleRt, 28f, 28f, false);
+                        AlignControlLeft(toggleRt);
+                    }
+                    else {
+                        UiLog.OnceError("settings:no-toggle", "native toggle template is unavailable");
+                    }
+                    break;
                 }
-                else {
-                    UiLog.OnceError("settings:no-button", "native button template is unavailable");
+                case SettingsRowKind.Slider: {
+                    NativeSlider? slider = null;
+                    slider = SkinPolicy.TryNative("settings slider", () =>
+                        NativeSlider.Create(runtime.Templates, content, row.Min, row.Max, row.FloatValue));
+                    if (slider != null) {
+                        slider.SetFormat(row.Format);
+                        slider.SetChanged(value => {
+                            row.FloatValue = value;
+                            try { row.FloatChanged?.Invoke(value); }
+                            catch (Exception e) { UiGuard.Report("settings.slider", e, _scope.Id); }
+                        });
+                        view.Slider = slider;
+                        SetControlSize(slider.Rt, SliderWidth, slider.Height, false);
+                        AlignControlLeft(slider.Rt);
+                    }
+                    else {
+                        UiLog.OnceError("settings:no-slider", "native slider template is unavailable");
+                    }
+                    break;
                 }
-                break;
+                case SettingsRowKind.Dropdown: {
+                    NativeDropdown? dropdown = null;
+                    dropdown = SkinPolicy.TryNative("settings dropdown", () =>
+                        NativeDropdown.Create(runtime.Templates, content, row.Options, row.Index));
+                    if (dropdown != null) {
+                        dropdown.SetChanged(index => {
+                            row.Index = index;
+                            try { row.IntChanged?.Invoke(index); }
+                            catch (Exception e) { UiGuard.Report("settings.dropdown", e, _scope.Id); }
+                        });
+                        view.Dropdown = dropdown;
+                        SetControlSize(dropdown.Rt, 220f, dropdown.Height, false);
+                        AlignControlLeft(dropdown.Rt);
+                    }
+                    else {
+                        UiLog.OnceError("settings:no-dropdown", "native dropdown template is unavailable");
+                    }
+                    break;
+                }
+                case SettingsRowKind.Button: {
+                    NativeButton? button = null;
+                    button = SkinPolicy.TryNative("settings button", () =>
+                        NativeButton.CreateLabel(runtime.Templates, content, "DM Settings Button", row.ButtonText, 16f,
+                            () => {
+                                try { row.Clicked?.Invoke(); }
+                                catch (Exception e) { UiGuard.Report("settings.button", e, _scope.Id); }
+                            }));
+                    if (button != null) {
+                        button.SetSize(110f, NativeButton.SlicedFit);
+                        AlignControlLeft(button.Rt);
+                        button.SetInteractable(row.Enabled);
+                        view.Button = button;
+                    }
+                    else {
+                        UiLog.OnceError("settings:no-button", "native button template is unavailable");
+                    }
+                    break;
+                }
             }
-        }
 
-        return view;
+            return view;
+        }
+        catch {
+            if (entryGo != null) UnityEngine.Object.Destroy(entryGo);
+            throw;
+        }
     }
 
     private static void SetControlSize(RectTransform rt, float width, float height, bool flexibleWidth) {
@@ -417,61 +483,77 @@ public sealed class SettingsTabHandle : IDisposable {
     }
 
     private static void RemoveTab(GameTabArea tabArea, GameTabTitle title, GameObject titleGo, GameObject pageGo) {
-        if (tabArea != null) {
-            var old = tabArea.tabs;
-            int found = -1;
-            if (old != null && title != null) {
-                for (int i = 0; i < old.Length; i++) {
-                    var candidate = old[i];
-                    if (candidate.title != null && candidate.title.gameObject == title.gameObject) {
-                        found = i;
-                        break;
-                    }
-                }
-            }
-
-            if (found >= 0 && old != null) {
-                int count = old.Length - 1;
-                var next = new Il2CppReferenceArray<GameTabArea.TabDefinition>(Mathf.Max(0, count));
-                int dst = 0;
-                for (int i = 0; i < old.Length; i++) {
-                    if (i == found) continue;
-                    if (dst < next.Length) next[dst++] = old[i];
-                }
-                tabArea.tabs = next;
-
-                var index = tabArea.titleIndex;
-                if (index != null) {
-                    index.Clear();
-                    for (int i = 0; i < next.Length; i++) {
-                        var candidate = next[i];
-                        if (candidate.title != null) index[candidate.title.gameObject] = i;
+        try {
+            if (tabArea != null) {
+                var old = tabArea.tabs;
+                int found = -1;
+                if (old != null) {
+                    for (int i = 0; i < old.Length; i++) {
+                        var candidate = old[i];
+                        bool sameTitle = title != null && candidate.title != null &&
+                                         candidate.title.gameObject == title.gameObject;
+                        bool sameContent = pageGo != null && candidate.content != null &&
+                                           candidate.content.gameObject == pageGo;
+                        if (sameTitle || sameContent) {
+                            found = i;
+                            break;
+                        }
                     }
                 }
 
-                if (pageGo != null && pageGo.activeSelf && next.Length > 0) tabArea.SelectTab(0);
+                if (found >= 0 && old != null) {
+                    int count = old.Length - 1;
+                    var next = new Il2CppReferenceArray<GameTabArea.TabDefinition>(Mathf.Max(0, count));
+                    int dst = 0;
+                    for (int i = 0; i < old.Length; i++) {
+                        if (i == found) continue;
+                        if (dst < next.Length) next[dst++] = old[i];
+                    }
+                    tabArea.tabs = next;
+
+                    var index = tabArea.titleIndex;
+                    if (index != null) {
+                        index.Clear();
+                        for (int i = 0; i < next.Length; i++) {
+                            var candidate = next[i];
+                            if (candidate.title != null) index[candidate.title.gameObject] = i;
+                        }
+                    }
+
+                    if (pageGo != null && pageGo.activeSelf && next.Length > 0) {
+                        try { tabArea.SelectTab(0); }
+                        catch (Exception e) { UiLog.OnceError("settings:select-after-remove", "could not select another settings tab: " + e.Message); }
+                    }
+                }
             }
         }
-
-        if (titleGo != null) UnityEngine.Object.Destroy(titleGo);
-        if (pageGo != null) UnityEngine.Object.Destroy(pageGo);
+        catch (Exception e) {
+            UiLog.Error("settings tab removal failed: " + e.Message);
+        }
+        finally {
+            if (titleGo != null) UnityEngine.Object.Destroy(titleGo);
+            if (pageGo != null) UnityEngine.Object.Destroy(pageGo);
+        }
     }
 
     private void Detach() {
         var view = _view;
         _view = null;
+        _detachedForScene = false;
         if (view == null) return;
 
         for (int i = 0; i < _rows.Count; i++) _rows[i].ResetView();
-        try { view.Dispose(); }
-        catch (Exception e) { UiLog.Error("settings tab detach: " + e); }
+        UiGuard.Run("settings.detach", view.Dispose, _scope.Id);
     }
 
-    /// <summary>Scene teardown: drop references without trying to mutate the dying settings hierarchy.</summary>
+    /// <summary>
+    /// Scene teardown: keep the old native references until the next settings refresh, then remove them before attaching
+    /// a fresh tab. Dropping them here can leave a duplicate registration in a settings screen that survives a scene.
+    /// </summary>
     internal void DetachForSceneChange() {
         if (_view == null) return;
         for (int i = 0; i < _rows.Count; i++) _rows[i].ResetView();
-        _view = null;
+        _detachedForScene = true;
     }
 
     private void MissingTemplate() {
@@ -482,10 +564,11 @@ public sealed class SettingsTabHandle : IDisposable {
     public void Dispose() {
         if (_disposed) return;
         _disposed = true;
-        Detach();
-        _host.RemoveSettingsTab(this);
-        _onDispose?.Invoke(this);
-        _scope.RemoveOwned(this);
+
+        UiGuard.Run("settings.detach", Detach, _scope.Id);
+        UiGuard.Run("settings.unregister", () => _host.RemoveSettingsTab(this), _scope.Id);
+        UiGuard.Run("settings.on-dispose", () => _onDispose?.Invoke(this), _scope.Id);
+        UiGuard.Run("settings.untrack", () => _scope.RemoveOwned(this), _scope.Id);
     }
 
     internal sealed class SettingsTabView {
@@ -495,8 +578,8 @@ public sealed class SettingsTabHandle : IDisposable {
         private readonly GameTabTitle _title;
 
         public SettingsTabView(GameSettings settings, GameTabArea tabArea, GameObject titleGo, GameObject pageGo,
-                               RectTransform holder, GameSettingEntry entryPrefab, GameLabel headerPrefab,
-                               GameTabTitle title) {
+                               RectTransform holder, GameSettingEntry entryPrefab, GameLabel? headerPrefab,
+                               GameTabTitle? title) {
             Settings = settings;
             _tabArea = tabArea;
             _titleGo = titleGo;
@@ -510,29 +593,52 @@ public sealed class SettingsTabHandle : IDisposable {
         public GameSettings Settings { get; }
         public RectTransform Holder { get; }
         public GameSettingEntry EntryPrefab { get; }
-        public GameLabel HeaderPrefab { get; }
+        public GameLabel? HeaderPrefab { get; }
         public List<SettingsRowView> Views { get; } = new();
         public bool IsAlive => Settings != null && _tabArea != null && _titleGo != null && _pageGo != null;
 
         public void Select() {
             if (!IsAlive || _tabArea.tabs == null) return;
-            for (int i = 0; i < _tabArea.tabs.Length; i++) {
-                var candidate = _tabArea.tabs[i];
-                if (candidate.title != null && candidate.title.gameObject == _titleGo) {
-                    _tabArea.SelectTab(i);
-                    return;
+            try {
+                for (int i = 0; i < _tabArea.tabs.Length; i++) {
+                    var candidate = _tabArea.tabs[i];
+                    if (candidate.title != null && candidate.title.gameObject == _titleGo) {
+                        _tabArea.SelectTab(i);
+                        return;
+                    }
                 }
+            }
+            catch (Exception e) {
+                UiLog.OnceError("settings:select", "could not select settings tab: " + e.Message);
             }
         }
 
         public void Dispose() {
-            foreach (var view in Views) view.Destroy();
+            foreach (var view in Views) {
+                try { view.Destroy(); }
+                catch (Exception e) { UiLog.Error("settings row cleanup failed: " + e.Message); }
+            }
             Views.Clear();
-            RemoveTab(_tabArea, _title, _titleGo, _pageGo);
+
+            try { RemoveTab(_tabArea, _title, _titleGo, _pageGo); }
+            catch (Exception e) { UiLog.Error("settings tab view cleanup failed: " + e.Message); }
         }
     }
 
-    private static List<string> Normalize(IEnumerable<string> options) {
+    private static string SafeFormat(string? format) {
+        if (string.IsNullOrWhiteSpace(format)) return "0.##";
+
+        try {
+            _ = 0f.ToString(format, CultureInfo.InvariantCulture);
+            return format;
+        }
+        catch {
+            UiLog.Once("settings:format", $"invalid settings number format '{format}'; using 0.##");
+            return "0.##";
+        }
+    }
+
+    private static List<string> Normalize(IEnumerable<string>? options) {
         var values = new List<string>();
         if (options != null) {
             foreach (var option in options) values.Add(option ?? string.Empty);

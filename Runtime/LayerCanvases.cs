@@ -20,9 +20,11 @@ internal sealed class LayerCanvases : IDisposable {
     private int _aboveOrder;
     private bool _initialized;
 
+    internal event Action? OrdersChanged;
+
     public LayerCanvases(UiKitRuntime runtime) => _runtime = runtime;
 
-    public Canvas Get(Layer layer) {
+    public Canvas? Get(Layer layer) {
         Ensure();
         return layer switch {
             Layer.BehindGame => _behind,
@@ -64,20 +66,48 @@ internal sealed class LayerCanvases : IDisposable {
             CopyScaler(hud, _game != null ? _game.GetComponent<CanvasScaler>() : null);
             CopyScaler(hud, _above != null ? _above.GetComponent<CanvasScaler>() : null);
         }
+
+        NotifyOrdersChanged();
+    }
+
+    private void NotifyOrdersChanged() {
+        var handlers = OrdersChanged;
+        if (handlers == null) return;
+
+        foreach (var handler in handlers.GetInvocationList()) {
+            try { ((Action)handler)(); }
+            catch (Exception e) { UiLog.Error("layer order listener failed: " + e.Message); }
+        }
     }
 
     public void Invalidate() => Refresh();
 
     private void Ensure() {
         if (_initialized) return;
-        _initialized = true;
 
         var hud = FindHudCanvas();
         ComputeOrders(hud);
 
-        _behind = Create("DiceModders UiKit [Behind]", Layer.BehindGame, _behindOrder, hud);
-        _game = Create("DiceModders UiKit [Game]", Layer.Game, _gameOrder, hud);
-        _above = Create("DiceModders UiKit [Above]", Layer.AboveGame, _aboveOrder, hud);
+        Canvas behind = null;
+        Canvas game = null;
+        Canvas above = null;
+        try {
+            behind = Create("DiceModders UiKit [Behind]", Layer.BehindGame, _behindOrder, hud);
+            game = Create("DiceModders UiKit [Game]", Layer.Game, _gameOrder, hud);
+            above = Create("DiceModders UiKit [Above]", Layer.AboveGame, _aboveOrder, hud);
+        }
+        catch (Exception e) {
+            Destroy(above);
+            Destroy(game);
+            Destroy(behind);
+            UiLog.Error("could not create the shared UI layers: " + e);
+            return;
+        }
+
+        _behind = behind;
+        _game = game;
+        _above = above;
+        _initialized = true;
 
         string mode = hud != null ? hud.renderMode.ToString() : "no HUD";
         string hudName = hud != null ? $"'{hud.name}'" : "none";
@@ -85,22 +115,29 @@ internal sealed class LayerCanvases : IDisposable {
     }
 
     private static Canvas Create(string name, Layer layer, int order, Canvas hud) {
-        var rect = UiFactory.NewRect(name, null);
-        var go = rect.gameObject;
-        UnityEngine.Object.DontDestroyOnLoad(go);
-        go.layer = hud != null ? hud.gameObject.layer : 5;
-        rect.sizeDelta = new Vector2(1920f, 1080f);
+        RectTransform rect = null;
+        try {
+            rect = UiFactory.NewRect(name, null);
+            var go = rect.gameObject;
+            UnityEngine.Object.DontDestroyOnLoad(go);
+            go.layer = hud != null ? hud.gameObject.layer : 5;
+            rect.sizeDelta = new Vector2(1920f, 1080f);
 
-        var canvas = go.AddComponent<Canvas>();
-        ApplyRenderMode(canvas, layer, hud);
-        canvas.sortingOrder = order;
-        if (hud != null) canvas.sortingLayerID = hud.sortingLayerID;
+            var canvas = go.AddComponent<Canvas>();
+            ApplyRenderMode(canvas, layer, hud);
+            canvas.sortingOrder = order;
+            if (hud != null) canvas.sortingLayerID = hud.sortingLayerID;
 
-        var scaler = go.AddComponent<CanvasScaler>();
-        CopyScaler(hud, scaler);
+            var scaler = go.AddComponent<CanvasScaler>();
+            CopyScaler(hud, scaler);
 
-        go.AddComponent<GraphicRaycaster>();
-        return canvas;
+            go.AddComponent<GraphicRaycaster>();
+            return canvas;
+        }
+        catch {
+            if (rect != null) UnityEngine.Object.Destroy(rect.gameObject);
+            throw;
+        }
     }
 
     /// <summary>
@@ -214,9 +251,10 @@ internal sealed class LayerCanvases : IDisposable {
     }
 
     public void Dispose() {
-        Destroy(_behind);
-        Destroy(_game);
-        Destroy(_above);
+        OrdersChanged = null;
+        UiGuard.Run("layers.behind", () => Destroy(_behind));
+        UiGuard.Run("layers.game", () => Destroy(_game));
+        UiGuard.Run("layers.above", () => Destroy(_above));
         _behind = null;
         _game = null;
         _above = null;

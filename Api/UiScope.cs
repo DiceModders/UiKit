@@ -5,7 +5,8 @@ using DiceModders.UiKit.Custom;
 namespace DiceModders.UiKit;
 
 /// <summary>
-/// A mod's ownership token. Everything created through <see cref="Custom"/> and <see cref="Native"/> is removed by <see cref="Dispose"/>.
+/// A mod's ownership token. Everything created through <see cref="Custom"/> and <see cref="Native"/> is removed by
+/// <see cref="Dispose"/>. Disposing a scope never throws.
 /// </summary>
 public sealed class UiScope : IDisposable {
     private readonly List<IDisposable> _owned = new();
@@ -23,20 +24,26 @@ public sealed class UiScope : IDisposable {
     public NativeApi Native { get; }
     public bool IsDisposed { get; private set; }
 
+    internal bool IsAlive => !IsDisposed && !Runtime.IsDisposed;
     internal List<IDisposable> Owned => _owned;
 
-    internal void RemoveOwned(IDisposable item) => _owned.Remove(item);
+    internal void RemoveOwned(IDisposable item) {
+        if (item != null) _owned.Remove(item);
+    }
 
     public void Dispose() {
         if (IsDisposed) return;
         IsDisposed = true;
 
-        for (int i = _owned.Count - 1; i >= 0; i--) {
-            try { _owned[i].Dispose(); }
-            catch (Exception e) { UiLog.Error($"scope '{Id}' dispose failed: {e}"); }
-        }
+        var owned = _owned.ToArray();
         _owned.Clear();
 
-        Runtime.RemoveScope(this);
+        for (int i = owned.Length - 1; i >= 0; i--) {
+            try { owned[i].Dispose(); }
+            catch (Exception e) { UiLog.Error($"scope '{Id}' dispose failed: {e}"); }
+        }
+
+        try { Runtime.RemoveScope(this); }
+        catch (Exception e) { UiLog.Error($"scope '{Id}' unregister failed: {e}"); }
     }
 }

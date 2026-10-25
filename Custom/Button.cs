@@ -33,42 +33,53 @@ public sealed class Button : Element {
         _native = native;
     }
 
-    internal static Button Create(Container parent, string text, Action onClick, string iconName, bool fixedSize,
-                                  string tooltip = null) {
+    internal static Button? Create(Container parent, string? text, Action? onClick, string? iconName, bool fixedSize,
+                                   string? tooltip = null) {
         var runtime = parent.Runtime;
         var theme = parent.Theme;
+        NativeButton? native = null;
 
-        if (SkinPolicy.AllowNative(runtime)) {
-            var sprite = string.IsNullOrEmpty(iconName) ? null : theme.Icon(iconName);
-            NativeButton native;
+        try {
+            if (SkinPolicy.AllowNative(runtime)) {
+                var sprite = string.IsNullOrEmpty(iconName) ? null : theme.Icon(iconName);
 
-            if (string.IsNullOrEmpty(iconName)) {
-                native = SkinPolicy.TryNative("button", () =>
-                    NativeButton.CreateLabel(runtime.Templates, parent.Root, "DM Button", text, 16f, onClick));
-            }
-            else if (sprite != null) {
-                native = SkinPolicy.TryNative("button", () =>
-                    NativeButton.CreateIcon(runtime.Templates, parent.Root, "DM IconButton", sprite, onClick, tooltip));
-            }
-            else {
-                native = SkinPolicy.TryNative("button", () =>
-                    NativeButton.CreateLabel(runtime.Templates, parent.Root, "DM IconButton", "?", 16f, onClick, tooltip));
+                if (string.IsNullOrEmpty(iconName)) {
+                    native = SkinPolicy.TryNative("button", () =>
+                        NativeButton.CreateLabel(runtime.Templates, parent.Root, "DM Button", text, 16f, onClick));
+                }
+                else if (sprite != null) {
+                    native = SkinPolicy.TryNative("button", () =>
+                        NativeButton.CreateIcon(runtime.Templates, parent.Root, "DM IconButton", sprite, onClick, tooltip));
+                }
+                else {
+                    native = SkinPolicy.TryNative("button", () =>
+                        NativeButton.CreateLabel(runtime.Templates, parent.Root, "DM IconButton", "?", 16f, onClick, tooltip));
+                }
+
+                if (native != null) {
+                    var result = FromNative(parent, native, text, fixedSize);
+                    if (result == null) {
+                        native.Destroy();
+                        return null;
+                    }
+                    result._tooltip = tooltip;
+                    return result;
+                }
+
+                if (!SkinPolicy.MissingNative(runtime, "button"))
+                    return null;
             }
 
-            if (native != null) {
-                var result = FromNative(parent, native, text, fixedSize);
-                result._tooltip = tooltip;
-                return result;
-            }
-
-            if (!SkinPolicy.MissingNative(runtime, "button"))
-                return null;
+            return CreateManaged(parent, text, onClick, iconName, fixedSize);
         }
-
-        return CreateManaged(parent, text, onClick, iconName, fixedSize);
+        catch (Exception e) {
+            UiGuard.Report("button.create", e);
+            if (native != null) UiGuard.Run("button.cleanup", native.Destroy);
+            return null;
+        }
     }
 
-    private static Button FromNative(Container parent, NativeButton native, string text, bool fixedSize) {
+    private static Button? FromNative(Container parent, NativeButton native, string? text, bool fixedSize) {
         var label = native.Text;
         var result = new Button(native.Rt, parent.Theme, native.UnityButton, native.Face, label,
                                 null, native);
@@ -100,153 +111,168 @@ public sealed class Button : Element {
         return result;
     }
 
-    private static Button CreateManaged(Container parent, string text, Action onClick, string iconName, bool fixedSize) {
+    private static Button? CreateManaged(Container parent, string? text, Action? onClick, string? iconName,
+                                         bool fixedSize) {
         var theme = parent.Theme;
         var rect = UiFactory.NewRect("DM Button", parent.Root);
-        var background = rect.gameObject.AddComponent<UIImage>();
-        var button = rect.gameObject.AddComponent<UButton>();
-        button.targetGraphic = background;
 
-        var normal = theme.Button(AssetCatalog.ButtonVariant.Regular, AssetCatalog.ButtonState.Ready);
-        var hover = theme.Button(AssetCatalog.ButtonVariant.Regular, AssetCatalog.ButtonState.Hovered);
-        var pressed = theme.Button(AssetCatalog.ButtonVariant.Regular, AssetCatalog.ButtonState.Pressed);
-        var disabled = theme.Button(AssetCatalog.ButtonVariant.Regular, AssetCatalog.ButtonState.Disabled);
+        try {
+            var background = rect.gameObject.AddComponent<UIImage>();
+            var button = rect.gameObject.AddComponent<UButton>();
+            button.targetGraphic = background;
 
-        if (normal != null) {
-            background.sprite = normal;
-            background.type = UIImage.Type.Sliced;
-            background.color = Color.white;
+            var normal = theme.Button(AssetCatalog.ButtonVariant.Regular, AssetCatalog.ButtonState.Ready);
+            var hover = theme.Button(AssetCatalog.ButtonVariant.Regular, AssetCatalog.ButtonState.Hovered);
+            var pressed = theme.Button(AssetCatalog.ButtonVariant.Regular, AssetCatalog.ButtonState.Pressed);
+            var disabled = theme.Button(AssetCatalog.ButtonVariant.Regular, AssetCatalog.ButtonState.Disabled);
 
-            if (hover != null && pressed != null) {
-                button.transition = Selectable.Transition.SpriteSwap;
-                var state = button.spriteState;
-                state.highlightedSprite = hover;
-                state.pressedSprite = pressed;
-                state.selectedSprite = normal;
-                state.disabledSprite = disabled ?? normal;
-                button.spriteState = state;
+            if (normal != null) {
+                background.sprite = normal;
+                background.type = UIImage.Type.Sliced;
+                background.color = Color.white;
+
+                if (hover != null && pressed != null) {
+                    button.transition = Selectable.Transition.SpriteSwap;
+                    var state = button.spriteState;
+                    state.highlightedSprite = hover;
+                    state.pressedSprite = pressed;
+                    state.selectedSprite = normal;
+                    state.disabledSprite = disabled ?? normal;
+                    button.spriteState = state;
+                }
             }
-        }
-        else {
-            background.color = new Color(0.20f, 0.17f, 0.13f, 0.95f);
-            button.transition = Selectable.Transition.ColorTint;
-            var colors = button.colors;
-            colors.normalColor = Color.white;
-            colors.highlightedColor = new Color(1f, 0.96f, 0.88f, 1f);
-            colors.pressedColor = new Color(0.82f, 0.76f, 0.66f, 1f);
-            colors.disabledColor = new Color(0.5f, 0.5f, 0.5f, 0.6f);
-            button.colors = colors;
-        }
-
-        var label = UiFactory.AddText(rect, "DM Label", text ?? string.Empty, 16f,
-                                      TextAlignmentOptions.Center, theme);
-        UiFactory.Stretch(label.rectTransform);
-        label.rectTransform.offsetMin = new Vector2(8f, 0f);
-        label.rectTransform.offsetMax = new Vector2(-8f, 0f);
-
-        UIImage icon = null;
-        if (!string.IsNullOrEmpty(iconName)) {
-            var sprite = theme.Icon(iconName);
-            if (sprite != null) {
-                icon = UiFactory.AddImage(rect, "DM Icon", sprite, Color.white, false);
-                icon.type = UIImage.Type.Simple;
-                icon.preserveAspect = true;
-                var iconRect = icon.rectTransform;
-                iconRect.anchorMin = iconRect.anchorMax = new Vector2(0f, 0.5f);
-                iconRect.pivot = new Vector2(0f, 0.5f);
-                iconRect.sizeDelta = new Vector2(24f, 24f);
-                iconRect.anchoredPosition = new Vector2(8f, 0f);
-                label.rectTransform.offsetMin = new Vector2(36f, 0f);
+            else {
+                background.color = new Color(0.20f, 0.17f, 0.13f, 0.95f);
+                button.transition = Selectable.Transition.ColorTint;
+                var colors = button.colors;
+                colors.normalColor = Color.white;
+                colors.highlightedColor = new Color(1f, 0.96f, 0.88f, 1f);
+                colors.pressedColor = new Color(0.82f, 0.76f, 0.66f, 1f);
+                colors.disabledColor = new Color(0.5f, 0.5f, 0.5f, 0.6f);
+                button.colors = colors;
             }
-            else if (string.IsNullOrEmpty(text)) {
-                label.text = "?";
+
+            var label = UiFactory.AddText(rect, "DM Label", text ?? string.Empty, 16f,
+                                          TextAlignmentOptions.Center, theme);
+            UiFactory.Stretch(label.rectTransform);
+            label.rectTransform.offsetMin = new Vector2(8f, 0f);
+            label.rectTransform.offsetMax = new Vector2(-8f, 0f);
+
+            UIImage icon = null;
+            if (!string.IsNullOrEmpty(iconName)) {
+                var sprite = theme.Icon(iconName);
+                if (sprite != null) {
+                    icon = UiFactory.AddImage(rect, "DM Icon", sprite, Color.white, false);
+                    icon.type = UIImage.Type.Simple;
+                    icon.preserveAspect = true;
+                    var iconRect = icon.rectTransform;
+                    iconRect.anchorMin = iconRect.anchorMax = new Vector2(0f, 0.5f);
+                    iconRect.pivot = new Vector2(0f, 0.5f);
+                    iconRect.sizeDelta = new Vector2(24f, 24f);
+                    iconRect.anchoredPosition = new Vector2(8f, 0f);
+                    label.rectTransform.offsetMin = new Vector2(36f, 0f);
+                }
+                else if (string.IsNullOrEmpty(text)) {
+                    label.text = "?";
+                }
             }
-        }
 
-        var layout = UiFactory.Layout(rect);
-        layout.minHeight = layout.preferredHeight = 32f;
-        layout.flexibleHeight = 0f;
+            var layout = UiFactory.Layout(rect);
+            layout.minHeight = layout.preferredHeight = 32f;
+            layout.flexibleHeight = 0f;
 
-        if (fixedSize) {
-            layout.minWidth = layout.preferredWidth = 32f;
-            layout.flexibleWidth = 0f;
-        }
-        else if (parent.TextSizedButtons) {
-            float width = Mathf.Max(32f, label.GetPreferredValues(text ?? string.Empty, 0f, 0f).x + 24f);
-            layout.minWidth = layout.preferredWidth = width;
-            layout.flexibleWidth = 0f;
-        }
-        else {
-            layout.minWidth = layout.preferredWidth = 0f;
-            layout.flexibleWidth = 1f;
-        }
+            if (fixedSize) {
+                layout.minWidth = layout.preferredWidth = 32f;
+                layout.flexibleWidth = 0f;
+            }
+            else if (parent.TextSizedButtons) {
+                float width = Mathf.Max(32f, label.GetPreferredValues(text ?? string.Empty, 0f, 0f).x + 24f);
+                layout.minWidth = layout.preferredWidth = width;
+                layout.flexibleWidth = 0f;
+            }
+            else {
+                layout.minWidth = layout.preferredWidth = 0f;
+                layout.flexibleWidth = 1f;
+            }
 
-        var result = new Button(rect, theme, button, background, label, icon);
-        result.OnClick(onClick);
-        return result;
+            var result = new Button(rect, theme, button, background, label, icon);
+            result.OnClick(onClick);
+            return result;
+        }
+        catch (Exception e) {
+            UiGuard.Report("button.managed", e);
+            UiFactory.Destroy(rect.gameObject);
+            return null;
+        }
     }
 
-    public Button Text(string value) {
-        if (_native != null) _native.SetText(value);
-        else if (_label != null) _label.text = value ?? string.Empty;
+    public Button Text(string? value) {
+        if (_native != null) UiGuard.Run("button.text", () => _native.SetText(value));
+        else if (_label != null) UiGuard.Run("button.text", () => _label.text = value ?? string.Empty);
         return this;
     }
 
-    public Button Icon(string spriteName) {
+    public Button Icon(string? spriteName) {
+        if (!IsAlive) return this;
         var sprite = _theme.Icon(spriteName);
         if (sprite == null) return this;
 
         if (_native != null) {
-            _native.SetIcon(sprite);
+            UiGuard.Run("button.icon", () => _native.SetIcon(sprite));
             return this;
         }
 
-        if (_icon == null) {
-            _icon = UiFactory.AddImage(Root, "DM Icon", sprite, Color.white, false);
-            _icon.type = UIImage.Type.Simple;
-            _icon.preserveAspect = true;
-            var iconRect = _icon.rectTransform;
-            iconRect.anchorMin = iconRect.anchorMax = new Vector2(0f, 0.5f);
-            iconRect.pivot = new Vector2(0f, 0.5f);
-            iconRect.sizeDelta = new Vector2(24f, 24f);
-            iconRect.anchoredPosition = new Vector2(8f, 0f);
-            if (_label != null) _label.rectTransform.offsetMin = new Vector2(36f, 0f);
-        }
-        else {
-            _icon.sprite = sprite;
-            _icon.enabled = true;
-        }
+        UiGuard.Run("button.icon", () => {
+            if (_icon == null) {
+                _icon = UiFactory.AddImage(Root, "DM Icon", sprite, Color.white, false);
+                _icon.type = UIImage.Type.Simple;
+                _icon.preserveAspect = true;
+                var iconRect = _icon.rectTransform;
+                iconRect.anchorMin = iconRect.anchorMax = new Vector2(0f, 0.5f);
+                iconRect.pivot = new Vector2(0f, 0.5f);
+                iconRect.sizeDelta = new Vector2(24f, 24f);
+                iconRect.anchoredPosition = new Vector2(8f, 0f);
+                if (_label != null) _label.rectTransform.offsetMin = new Vector2(36f, 0f);
+            }
+            else {
+                _icon.sprite = sprite;
+                _icon.enabled = true;
+            }
+        });
         return this;
     }
 
-    public Button Tooltip(string text) {
+    public Button Tooltip(string? text) {
         _tooltip = text;
-        _native?.SetTooltip(text);
+        UiGuard.Run("button.tooltip", () => _native?.SetTooltip(text));
         return this;
     }
 
     public Button Selected(bool selected = true) {
         _selected = selected;
-        if (_native != null) _native.SetSelected(selected);
-        else ApplySelected();
+        if (_native != null) UiGuard.Run("button.selected", () => _native.SetSelected(selected));
+        else UiGuard.Run("button.selected", ApplySelected);
         return this;
     }
 
     public Button Interactable(bool on = true) {
-        if (_native != null) _native.SetInteractable(on);
-        else if (_button != null) _button.interactable = on;
+        if (_native != null) UiGuard.Run("button.interactable", () => _native.SetInteractable(on));
+        else if (_button != null) UiGuard.Run("button.interactable", () => _button.interactable = on);
         return this;
     }
 
-    public Button OnClick(Action action) {
+    public Button OnClick(Action? action) {
+        if (!IsAlive) return this;
         if (_native != null) {
-            _native.SetClick(action);
+            UiGuard.Run("button.click", () => _native.SetClick(action));
             return this;
         }
 
         if (_button == null) return this;
-        if (_relay == null) _relay = Root.gameObject.GetComponent<ClickRelay>() ?? Root.gameObject.AddComponent<ClickRelay>();
-        ClickRelayRegistry.Bind(_relay, _button, action);
+        UiGuard.Run("button.click", () => {
+            if (_relay == null) _relay = Root.gameObject.GetComponent<ClickRelay>() ?? Root.gameObject.AddComponent<ClickRelay>();
+            ClickRelayRegistry.Bind(_relay, _button, action);
+        });
         return this;
     }
 

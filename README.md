@@ -2,7 +2,7 @@
 
 A shared UI runtime for Dice Kingdoms mods. One plugin owns the canvases, the asset cache and the game hooks; mods only create scopes.
 
-> **Status: phase 3 (native integrations, in progress).** Managed windows and the `PreferNative` widget skins are wired. The top-right bar now accepts native icon buttons, and the Settings screen accepts add-only tabs and rows. The scoreboard and rules integrations are still stubs. Breaking changes are expected until the native phase is finished. A built-in demo makes an in-game smoke test possible without a separate test mod.
+> **Status: P0 foundation (phase 3 continues).** Managed windows, native widget skins, top-bar icon buttons and add-only Settings tabs are wired. The runtime lifecycle is host-only, the public API follows a null/error contract, and TopBar icons are resolved lazily. Scoreboard and rules integrations are not part of the public API yet. Breaking changes are still expected before 1.0. A built-in demo makes an in-game smoke test possible without a separate test mod.
 
 ## Setup
 
@@ -17,7 +17,7 @@ using DiceModders.UiKit;
 using DiceModders.UiKit.Custom;
 
 public sealed class MyPlugin : BasePlugin {
-    private UiScope _ui;
+    private UiScope? _ui;
 
     public override void Load() {
         _ui = UiKit.CreateScope("my.mod.id");
@@ -27,7 +27,9 @@ public sealed class MyPlugin : BasePlugin {
     // or a menu screen callback. Creating windows during plugin Load works, but the game's
     // sprites and font may not be loaded yet and the managed fallback look is used.
     private void ShowMyWindow() {
-        _ui.Custom.Window(w => {
+        if (_ui == null) return;
+
+        var window = _ui.Custom.Window(w => {
             w.Title("My window")
              .Size(420, 280)
              .Center()
@@ -41,16 +43,30 @@ public sealed class MyPlugin : BasePlugin {
                 row.Button("Cancel", w.Close).FillWidth();
             });
         });
+
+        window?.BringToFront();
     }
 
     public override bool Unload() {
-        _ui.Dispose();
+        _ui?.Dispose();
         return true;
     }
 }
 ```
 
-The UiKit plugin calls `UiKit.Initialize(...)` once. Mods never create a canvas, scan assets or patch the game themselves.
+The UiKit plugin calls its internal `Initialize`/`Shutdown` exactly once. `UiKitRuntime` and `UiOptions` are internal; mods cannot create, replace or stop the shared runtime, scan assets or patch the game themselves.
+
+## Lifecycle and error contract
+
+* The UiKit plugin owns the runtime. A scope is the only lifetime token a mod creates.
+* `UiKit.CreateScope(id)` returns `null` when the runtime is unavailable. A null or empty `id` is replaced by a generated diagnostic id.
+* Every public factory can return `null` when the scope/runtime is gone or a widget cannot be created.
+* Fluent methods never throw for an invalid state. After a scope or widget is disposed they become no-ops and return the same handle; `Dispose` is idempotent.
+* User callbacks are wrapped by an error boundary. A failing callback is logged and cannot break the game loop or another mod.
+* Missing game sprites, fonts and native templates are logged once and degrade to a managed fallback or a `null` widget; library errors never escape as exceptions.
+* Native registrations use the same contract: they may return `null`, but calling them from plugin `Load` is safe and they attach on the next scene where the game UI exists.
+
+The assembly uses nullable annotations for the public surface, so `UiScope?`, `Window?`, `Button?`, `TopBarButton?` and `SettingsTabHandle?` should be treated as nullable. Full nullable warning cleanup is a later task; the project deliberately enables annotations without turning on the complete warning set yet.
 
 ## Built-in demo
 
@@ -85,7 +101,7 @@ UiKit.RebuildDemo();
 * every native registration added through `scope.Native.TopBar` or `scope.Native.Settings`;
 * nothing else. The shared canvases, asset cache and theme belong to the runtime.
 
-IDs are scope-local diagnostics. They are not used as game IDs or network hashes.
+IDs are scope-local diagnostics. They are not used as game IDs or network hashes. Disposing a scope removes all of its objects in reverse creation order; one failing removal does not stop the rest.
 
 ## Layers
 
@@ -100,12 +116,14 @@ All three are shared canvases created lazily: at most three per process, no matt
 ```csharp
 w.Layer(Layer.BehindGame);
 w.Layer(Layer.AboveGame);
-w.SortingOrder(10);
+w.SortingOrder(10); // relative to the current layer; updated after a layer refresh
 ```
+
+`SortingOrder` is stored as a layer-relative offset and is recalculated when the shared canvases re-read the game's sorting order after a scene change. `Window.Layer(...)` remains safe after the window is disposed.
 
 ## Windows
 
-`Window` is both the builder and the handle.
+`Window` is both the builder and the handle. `CustomApi.Window` returns `null` if the scope is gone or the build callback fails; a failed window is disposed before returning.
 
 ```csharp
 var window = _ui.Custom.Window(w => {
@@ -123,13 +141,13 @@ var window = _ui.Custom.Window(w => {
     w.Body.Button("Apply", Apply);
 });
 
-window.BringToFront();
-window.Fullscreen();
-window.Restore();
-window.Close();
+window?.BringToFront();
+window?.Fullscreen();
+window?.Restore();
+window?.Close();
 ```
 
-Useful handle methods: `Show`, `Hide`, `Toggle`, `BringToFront`, `Fullscreen`, `Restore`, `Close`, `Dispose`.
+Useful handle methods: `Show`, `Hide`, `Toggle`, `BringToFront`, `Fullscreen`, `Restore`, `Close`, `Dispose`. `TitleBar` is a nullable `Container` (the title strip is created on demand). `Body` remains a container handle; after the window is disposed its factory methods return `null`.
 
 `Position(x, y)` is measured from the top-left corner of the layer. `Center()` does the obvious thing.
 
@@ -144,6 +162,7 @@ Useful handle methods: `Show`, `Hide`, `Toggle`, `BringToFront`, `Fullscreen`, `
 * `Row`, `Column`, `Grid`
 * `Spacer`, `Separator`
 * `Spacing`, `Padding`, `Columns`, `CellSize`
+* `Clear`, `Remove(Element)`
 
 All widgets derive from `Element` and can be chained with layout extensions:
 
@@ -157,7 +176,7 @@ w.Body.Scroll(list => {
 });
 ```
 
-`Fixed`, `Width`, `Height`, `Fill`, `FillWidth` and `FillHeight` return the same widget type, so the rest of the chain still works.
+`Fixed`, `Width`, `Height`, `Fill`, `FillWidth` and `FillHeight` accept a possibly-null element and no-op when it is `null`, so a chain stays type-safe without an extra check. Widget factories return `null` when the container is disposed or the widget cannot be built.
 
 ### Text
 
@@ -171,19 +190,13 @@ The dropdown uses the game's own popup when the native dropdown template is avai
 
 ### Native skins
 
-`UiOptions.Templates` controls how widgets are dressed:
+`Widgets/Templates` controls how widgets are dressed:
 
 | Policy | Behavior |
 |---|---|
 | `PreferNative` | Clone the game's widget when its template is found; otherwise use the managed fallback. |
 | `ManagedOnly` | Never clone game widgets; always use the managed versions. |
 | `NativeOnly` | Use only game widgets. If a template is missing, the factory logs an error and returns `null`. |
-
-```csharp
-UiKit.Initialize(this, new UiOptions {
-    Templates = TemplatePolicy.PreferNative,
-});
-```
 
 The native skins are real clones of live game controls:
 
@@ -222,6 +235,8 @@ Native additions are inserted into the game's own UI hierarchy. They are not sep
 
 Native integrations require game templates. With `TemplatePolicy.ManagedOnly` they log an error and return `null`; with `NativeOnly` or `PreferNative` they attach as soon as a scene with the relevant game UI is available. Registrations survive scene changes and are reattached automatically. Calling these APIs from plugin `Load` is safe.
 
+Each native registration is isolated in its own guard. If one mod's registration fails to attach, the remaining top-bar buttons and settings tabs are still refreshed.
+
 ### Top bar
 
 ```csharp
@@ -232,7 +247,9 @@ button?.SetVisible(true);
 button?.SetClick(TogglePanel);
 ```
 
-`TopBarButton.IsAlive` is true while the button is present in the current scene. `Dispose` removes it from the bar. The button is a clone of the game's bar button, so it keeps the native art, cursor and click sounds.
+`AddIconButton(name, ...)` stores the icon name and resolves it lazily. It is safe in plugin `Load`: the handle is returned immediately even before sprites are loaded, `IsAlive` becomes true when the bar exists and the icon has been resolved, and the icon is retried on scene refresh. `SetIcon(string)` follows the same lazy rule. `AddIconButton(Sprite, ...)` works with a caller-supplied sprite.
+
+A `TopBarButton` is a clone of the game's bar button, so it keeps the native art, cursor and click sounds. `Dispose` removes it from the bar. A handle may be returned while `IsAlive` is still false; this is the intended lazy state, not an error.
 
 ### Settings (add-only)
 
@@ -246,15 +263,13 @@ var tab = _ui.Native.Settings.AddTab("my.mod", "My Mod", t => {
     t.AddDropdown("Mode", new[] { "Easy", "Normal", "Hard" }, 1, index => { /* ... */ });
     t.AddButton("Apply", "Apply", Apply);
 });
+
+tab?.Select();
 ```
 
 Each row keeps its current value and callback across scene changes; only the native visual is rebuilt. `SettingsRow` exposes `SetValue`, `SetEnabled` and `SetVisible`. `SettingsTabHandle.Select()` opens the added tab if the settings screen is available. The tab title and content are real clones of the game's own tabs and setting containers.
 
-The `Settings` API also declares the built-in `SettingsTab` enum (`Video`, `Audio`, `Input`, `Game`, `Lobby`) for code that needs to refer to the existing tabs; adding rows to those tabs is intentionally not supported yet.
-
-### Scoreboard and rules
-
-`Native.Scoreboard` and `Native.Rules` are reserved API surfaces. Scoreboard callback columns and the Rules civilization catalogue are the next native integrations; they are not implemented yet.
+A tab id is scope-local. Duplicate ids return the existing live tab; a null or empty id gets a generated diagnostic id. A tab that exists before the Settings screen is loaded is queued and attaches later.
 
 ## Theme
 
@@ -263,17 +278,18 @@ The `Settings` API also declares the built-in `SettingsTab` enum (`Video`, `Audi
 ```csharp
 var theme = _ui.Custom.Theme;
 
-var font = theme.Font;
-var material = theme.FontMaterial;
-var hammer = theme.Icon("hammer");
+var font = theme.Font;                 // nullable
+var material = theme.FontMaterial;     // nullable
+var hammer = theme.Icon("hammer");     // nullable
 var frame = theme.Ornament(OrnamentStyle.Classic);
 var sprite = theme.Sprite("Background-3");
 ```
 
-Asset scanning is done once by the runtime and invalidated on scene changes. Mods never scan assets.
+Asset scanning is done once by the runtime and invalidated on scene changes. Mods never scan assets. Theme lookups never throw and return `null` for not-yet-loaded or missing assets; `SpriteNames()` returns an empty sequence rather than throwing.
 
 ## What is not here yet
 
-* `Native.Scoreboard` callback columns and `Native.Rules` civilizations.
 * Editing or removing existing game UI elements. Native additions are add-only for now, but the staging and cloning primitives are ready for future editing support.
-* Diagnostics beyond the built-in demo, automated in-game tests and final docs.
+* Scoreboard callback columns and Rules civilizations. The old public stubs were removed from P0; these will return as designed APIs with their own scopes and guards.
+* Renaming the public `Button`/`Text`/`Image`/`Window` types that shadow common Unity names. This is a planned breaking change before 1.0, not part of P0.
+* Automated in-game tests and final diagnostics beyond the built-in demo.

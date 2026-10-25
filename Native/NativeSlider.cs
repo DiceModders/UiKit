@@ -148,6 +148,11 @@ internal sealed class NativeSlider {
 
     private void UpdateLabel() {
         if (ValueText == null || Slider == null) return;
-        ValueText.text = Slider.value.ToString(_format, CultureInfo.InvariantCulture);
+
+        try { ValueText.text = Slider.value.ToString(_format, CultureInfo.InvariantCulture); }
+        catch {
+            _format = "0.##";
+            ValueText.text = Slider.value.ToString(_format, CultureInfo.InvariantCulture);
+        }
     }
 }
