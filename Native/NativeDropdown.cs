@@ -17,6 +17,7 @@ internal sealed class NativeDropdown {
     public int Index { get; private set; }
     public float Height { get; private set; } = 32f;
     public bool IsAlive => Rt != null && Dropdown != null;
+    public GameObject? Go => Dropdown != null ? Dropdown.gameObject : Rt != null ? Rt.gameObject : null;
 
     private Action<int>? _changed;
     private UnityAction<int>? _unity;
@@ -130,5 +131,12 @@ internal sealed class NativeDropdown {
         try { _changed?.Invoke(index); }
         catch (Exception e) { UiLog.Error("native dropdown: " + e); }
         NativeButton.Deselect();
+    }
+
+    public void Destroy() {
+        var go = Go;
+        if (go != null) UnityEngine.Object.Destroy(go);
+        Rt = null;
+        Dropdown = null;
     }
 }

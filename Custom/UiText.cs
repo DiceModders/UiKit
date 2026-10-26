@@ -63,8 +63,16 @@ public sealed class UiText : UiElement {
 
     internal static float MeasureLineHeight(TMP_Text? text) {
         if (text == null) return 24f;
-        float height = text.GetPreferredValues("Ag", 100000f, 0f).y;
-        return Mathf.Ceil(Mathf.Max(height, text.fontSize * 1.5f)) + 1f;
+
+        try {
+            if (TmpTextSafety.TryPreferredValues(text, "Ag", 100000f, 0f, out var preferred)) {
+                return Mathf.Ceil(Mathf.Max(preferred.y, text.fontSize * 1.5f)) + 1f;
+            }
+            return Mathf.Ceil(Mathf.Max(24f, text.fontSize * 1.5f)) + 1f;
+        }
+        catch {
+            return 24f;
+        }
     }
 
     public string Value {

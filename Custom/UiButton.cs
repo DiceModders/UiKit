@@ -98,8 +98,12 @@ public sealed class UiButton : UiElement {
                 native.FitIcon(NativeButton.SlicedFit);
             }
             else if (parent.TextSizedButtons) {
-                float width = Mathf.Max(64f,
-                    label != null ? Mathf.Ceil(label.GetPreferredValues(text ?? string.Empty).x) + 28f : 0f);
+                float preferredWidth = 0f;
+                if (label != null &&
+                    TmpTextSafety.TryPreferredValues(label, text ?? string.Empty, 0f, 0f, out var preferred)) {
+                    preferredWidth = preferred.x;
+                }
+                float width = Mathf.Max(64f, Mathf.Ceil(preferredWidth) + 28f);
                 layout.minWidth = layout.preferredWidth = width;
                 layout.flexibleWidth = 0f;
                 native.SetSize(width, NativeButton.SlicedFit);
@@ -191,7 +195,11 @@ public sealed class UiButton : UiElement {
                     layout.flexibleWidth = 0f;
                 }
                 else if (parent.TextSizedButtons) {
-                    float width = Mathf.Max(32f, label.GetPreferredValues(text ?? string.Empty, 0f, 0f).x + 24f);
+                    float preferredWidth = 0f;
+                    if (TmpTextSafety.TryPreferredValues(label, text ?? string.Empty, 0f, 0f, out var preferred)) {
+                        preferredWidth = preferred.x;
+                    }
+                    float width = Mathf.Max(32f, preferredWidth + 24f);
                     layout.minWidth = layout.preferredWidth = width;
                     layout.flexibleWidth = 0f;
                 }

@@ -7,8 +7,9 @@ using UnityEngine.InputSystem;
 namespace DiceModders.UiKit.Custom;
 
 /// <summary>
-/// Delivers mouse movement and the wheel to widgets that need them. The Input System actions exist only while at
-/// least one widget is registered and invoke callbacks on input changes, so there is no per-frame polling.
+/// Delivers mouse movement and the wheel to widgets that need them. The Input System update callback exists only while
+/// at least one widget is registered and delivers position/wheel deltas without <c>InputAction.CallbackContext</c>
+/// marshalling, which Il2CppInterop cannot convert.
 /// </summary>
 internal static class PointerTracker {
     internal sealed class Entry {
@@ -20,10 +21,9 @@ internal static class PointerTracker {
     }
 
     private static readonly List<Entry> Entries = new();
-    private static InputAction? _moveAction;
-    private static InputAction? _scrollAction;
-    private static Il2CppSystem.Action<InputAction.CallbackContext>? _moveHandler;
-    private static Il2CppSystem.Action<InputAction.CallbackContext>? _scrollHandler;
+    private static Il2CppSystem.Action? _updateHandler;
+    private static Vector2 _lastPosition;
+    private static bool _hasLastPosition;
     private static bool _inputErrorLogged;
     private static int _dispatchDepth;
 
@@ -33,7 +33,7 @@ internal static class PointerTracker {
             Owner = owner, Hover = hover, Wheel = wheel, Move = move, WheelPriority = wheelPriority,
         };
         Entries.Add(entry);
-        EnsureActions();
+        EnsureInput();
         return entry;
     }
 
@@ -45,17 +45,17 @@ internal static class PointerTracker {
 
     public static void Clear() {
         Entries.Clear();
-        DisposeActions();
+        DisposeInput();
     }
 
     private static void DisposeIfIdle() {
         if (Entries.Count != 0) return;
         if (_dispatchDepth > 0) {
-            // Never tear down an Input System action from inside its own callback; do it after input dispatch.
+            // Never unsubscribe from inside the Input System callback; do it after input dispatch.
             LayoutOnce.Request(DisposeIfIdle);
             return;
         }
-        DisposeActions();
+        DisposeInput();
     }
 
     private static void EndDispatch() {
@@ -63,28 +63,17 @@ internal static class PointerTracker {
         if (_dispatchDepth == 0 && Entries.Count == 0) LayoutOnce.Request(DisposeIfIdle);
     }
 
-    private static void EnsureActions() {
-        if (_moveAction != null && _scrollAction != null) return;
+    private static void EnsureInput() {
+        if (_updateHandler != null || Entries.Count == 0) return;
 
         try {
-            if (_moveAction == null) {
-                _moveAction = new InputAction("UiKitPointerMove", InputActionType.PassThrough, "<Mouse>/position");
-                _moveHandler = DelegateSupport.ConvertDelegate<Il2CppSystem.Action<InputAction.CallbackContext>>(OnMovePerformed);
-                if (_moveHandler == null) throw new InvalidOperationException("could not create the pointer move callback");
-                _moveAction.add_performed(_moveHandler);
-                _moveAction.Enable();
-            }
-
-            if (_scrollAction == null) {
-                _scrollAction = new InputAction("UiKitPointerScroll", InputActionType.PassThrough, "<Mouse>/scroll");
-                _scrollHandler = DelegateSupport.ConvertDelegate<Il2CppSystem.Action<InputAction.CallbackContext>>(OnScrollPerformed);
-                if (_scrollHandler == null) throw new InvalidOperationException("could not create the pointer scroll callback");
-                _scrollAction.add_performed(_scrollHandler);
-                _scrollAction.Enable();
-            }
+            var handler = DelegateSupport.ConvertDelegate<Il2CppSystem.Action>(OnInputAfterUpdate);
+            if (handler == null) throw new InvalidOperationException("could not create the pointer update callback");
+            InputSystem.add_onAfterUpdate(handler);
+            _updateHandler = handler;
         }
         catch (Exception e) {
-            DisposeActions();
+            DisposeInput();
             if (!_inputErrorLogged) {
                 _inputErrorLogged = true;
                 UiLog.Warn("pointer input could not be initialized; image Move and wheel callbacks are disabled: " + e.Message);
@@ -92,58 +81,39 @@ internal static class PointerTracker {
         }
     }
 
-    private static void DisposeActions() {
-        var move = _moveAction;
-        var scroll = _scrollAction;
-        var moveHandler = _moveHandler;
-        var scrollHandler = _scrollHandler;
-        _moveAction = null;
-        _scrollAction = null;
-        _moveHandler = null;
-        _scrollHandler = null;
+    private static void DisposeInput() {
+        var handler = _updateHandler;
+        _updateHandler = null;
+        _hasLastPosition = false;
+        _lastPosition = default;
+        if (handler == null) return;
 
-        if (move != null) {
-            try {
-                if (moveHandler != null) move.remove_performed(moveHandler);
-                move.Disable();
-                move.Dispose();
-            }
-            catch (Exception e) { UiLog.Once("pointer:move-dispose", "could not dispose pointer move action: " + e.Message); }
-        }
-
-        if (scroll != null) {
-            try {
-                if (scrollHandler != null) scroll.remove_performed(scrollHandler);
-                scroll.Disable();
-                scroll.Dispose();
-            }
-            catch (Exception e) { UiLog.Once("pointer:scroll-dispose", "could not dispose pointer scroll action: " + e.Message); }
-        }
+        try { InputSystem.remove_onAfterUpdate(handler); }
+        catch (Exception e) { UiLog.Once("pointer:input-dispose", "could not remove the pointer update callback: " + e.Message); }
     }
 
-    private static void OnMovePerformed(InputAction.CallbackContext context) {
+    private static void OnInputAfterUpdate() {
         try {
-            Vector2 position = context.ReadValue<Vector2>();
-            MoveAt(position);
-        }
-        catch (Exception e) {
-            UiLog.Once("pointer:move", "pointer move input failed: " + e.Message);
-        }
-    }
+            if (Entries.Count == 0) return;
 
-    private static void OnScrollPerformed(InputAction.CallbackContext context) {
-        try {
             var mouse = Mouse.current;
             if (mouse == null) return;
 
-            float rawWheel = context.ReadValue<Vector2>().y;
-            float notches = rawWheel == 0f ? 0f : (Mathf.Abs(rawWheel) >= 20f ? rawWheel / 120f : rawWheel);
-            if (notches == 0f) return;
+            Vector2 position = mouse.position.ReadValue();
+            if (!_hasLastPosition || position != _lastPosition) {
+                _hasLastPosition = true;
+                _lastPosition = position;
+                MoveAt(position);
+            }
 
-            WheelAt(mouse.position.ReadValue(), notches);
+            float rawWheel = mouse.scroll.ReadValue().y;
+            if (rawWheel == 0f) return;
+
+            float notches = Mathf.Abs(rawWheel) >= 20f ? rawWheel / 120f : rawWheel;
+            if (notches != 0f) WheelAt(position, notches);
         }
         catch (Exception e) {
-            UiLog.Once("pointer:wheel", "pointer wheel input failed: " + e.Message);
+            UiLog.Once("pointer:input", "pointer input failed: " + e.Message);
         }
     }
 

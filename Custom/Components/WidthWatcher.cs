@@ -22,14 +22,24 @@ internal sealed class WidthWatcher : MonoBehaviour {
     }
 
     private void OnRectTransformDimensionsChange() {
-        if (_text == null) return;
+        var text = _text;
+        if (text == null) return;
 
-        float width = _text.rectTransform.rect.width;
-        if (Mathf.Abs(width - _lastWidth) < 0.5f) return;
-        _lastWidth = width;
+        try {
+            var rect = text.rectTransform;
+            if (rect == null) return;
 
-        _text.SetAllDirty();
-        _text.ForceMeshUpdate();
+            float width = rect.rect.width;
+            if (Mathf.Abs(width - _lastWidth) < 0.5f) return;
+            _lastWidth = width;
+
+            if (!TmpTextSafety.EnsureMeasurable(text)) return;
+            text.SetAllDirty();
+            text.ForceMeshUpdate();
+        }
+        catch {
+            // TMP can be mid-rebuild here; the next width change or layout event will retry.
+        }
     }
 
     private void OnDestroy() => _text = null;

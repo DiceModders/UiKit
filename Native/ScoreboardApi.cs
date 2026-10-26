@@ -46,7 +46,8 @@ public sealed class ScoreboardApi {
 
         ScoreboardColumnHandle? handle = null;
         try {
-            handle = new ScoreboardColumnHandle(_scope, _host, columnId, tooltip, icon);
+            handle = new ScoreboardColumnHandle(_scope, _host, columnId, tooltip, icon,
+                value => _columns.Remove(value.Id));
             if (!SkinPolicy.AllowNative(_scope.Runtime)) {
                 handle.MarkUnsupported("TemplatePolicy.ManagedOnly disables native scoreboard columns");
             }

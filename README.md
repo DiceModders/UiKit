@@ -351,10 +351,12 @@ image.OnPointer(e => {
 ```
 
 Supported kinds: `Down`, `Up`, `Click`, `Move`, `Drag`, `Enter`, `Exit`. Move is delivered while the pointer hovers the
-image; its delta is zero on the first event after entering. The library's internal pointer tracker creates Input System
-move/wheel actions only while at least one image or managed scroll view is registered. `OnScroll` takes wheel notches and
-is called only while the pointer is over that image; hovering an image without a scroll handler lets the surrounding
-`UiScroll` handle the wheel. This tracker is also why wheel input works over the gaps between custom scroll rows.
+image; its delta is zero on the first event after entering. The library's internal pointer tracker subscribes to
+`InputSystem.onAfterUpdate` only while at least one image or managed scroll view is registered; it reads
+`Mouse.current` directly and does not use `InputAction.CallbackContext`, which Il2CppInterop cannot marshal. `OnScroll`
+takes wheel notches and is called only while the pointer is over that image; hovering an image without a scroll handler
+lets the surrounding `UiScroll` handle the wheel. This tracker is also why wheel input works over the gaps between
+custom scroll rows.
 
 ## Native lifecycle
 

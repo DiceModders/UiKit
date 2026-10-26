@@ -5,6 +5,7 @@ using GameInterface = DiceKingdoms.Interface.Interface;
 using GameMainMenu = DiceKingdoms.Meta.MainMenu;
 using GamePlayerSkins = DiceKingdoms.Game.PlayerSkins;
 using GameRules = DiceKingdoms.Meta.Rules;
+using GameScoreboard = DiceKingdoms.Interface.Scoreboard;
 using GameScoreboardRow = DiceKingdoms.Interface.ScoreboardRow;
 using GameSettingSet = DiceKingdoms.Meta.SettingSetInterface;
 using GameSettings = DiceKingdoms.Meta.SettingSetsInterface;
@@ -40,10 +41,12 @@ internal static class NativeHooks {
             TryPatch(harmony, typeof(SettingsGeneratePatch), "settings generate");
             TryPatch(harmony, typeof(SettingsScreenEnablePatch), "settings screen enable");
             TryPatch(harmony, typeof(SettingsScreenDisablePatch), "settings screen disable");
-            TryPatch(harmony, typeof(SettingsPageEnablePatch), "settings page enable");
             TryPatch(harmony, typeof(MainMenuStartPatch), "main menu start");
             TryPatch(harmony, typeof(InterfaceStartPatch), "interface start");
             TryPatch(harmony, typeof(ScoreboardRowIslandPatch), "scoreboard island");
+            TryPatch(harmony, typeof(ScoreboardStartPatch), "scoreboard start");
+            TryPatch(harmony, typeof(ScoreboardPopulatePatch), "scoreboard populate");
+            TryPatch(harmony, typeof(ScoreboardEnablePatch), "scoreboard enable");
 
             UiLog.Info("native game hooks installed");
         }
@@ -89,6 +92,11 @@ internal static class NativeHooks {
         catch (Exception e) { UiLog.OnceError("scoreboard:row", "scoreboard row hook failed: " + e); }
     }
 
+    internal static void ScoreboardShown(GameScoreboard? scoreboard) {
+        try { _runtime?.NativeUi.OnScoreboardShown(scoreboard); }
+        catch (Exception e) { UiLog.OnceError("scoreboard:shown", "scoreboard shown hook failed: " + e); }
+    }
+
     internal static void RulesOpened(GameRules? rules) {
         try { _runtime?.NativeUi.OnRulesScreen(rules); }
         catch (Exception e) { UiLog.OnceError("rules:screen", "Rules screen hook failed: " + e); }
@@ -107,11 +115,6 @@ internal static class NativeHooks {
     internal static void SettingsScreenClosed(GameSettings? settings) {
         try { _runtime?.NativeUi.OnSettingsScreenHidden(settings); }
         catch (Exception e) { UiLog.OnceError("settings:screen-close", "Settings screen close hook failed: " + e); }
-    }
-
-    internal static void SettingsPageOpened(GameSettingSet? set) {
-        try { _runtime?.NativeUi.OnSettingsPageChanged(set); }
-        catch (Exception e) { UiLog.OnceError("settings:page-open", "Settings page open hook failed: " + e); }
     }
 
     internal static void RowIslandChanged(GameScoreboardRow? row) {
@@ -167,6 +170,24 @@ internal static class ScoreboardRowStartPatch {
     public static void Postfix(GameScoreboardRow __instance) => NativeHooks.RowStarted(__instance);
 }
 
+[HarmonyPatch(typeof(GameScoreboard), "Start")]
+internal static class ScoreboardStartPatch {
+    [HarmonyPostfix]
+    public static void Postfix(GameScoreboard __instance) => NativeHooks.ScoreboardShown(__instance);
+}
+
+[HarmonyPatch(typeof(GameScoreboard), "Populate")]
+internal static class ScoreboardPopulatePatch {
+    [HarmonyPostfix]
+    public static void Postfix(GameScoreboard __instance) => NativeHooks.ScoreboardShown(__instance);
+}
+
+[HarmonyPatch(typeof(GameScoreboard), "OnEnable")]
+internal static class ScoreboardEnablePatch {
+    [HarmonyPostfix]
+    public static void Postfix(GameScoreboard __instance) => NativeHooks.ScoreboardShown(__instance);
+}
+
 [HarmonyPatch(typeof(GameRules), "Awake")]
 internal static class RulesAwakePatch {
     [HarmonyPostfix]
@@ -209,12 +230,6 @@ internal static class SettingsScreenEnablePatch {
 internal static class SettingsScreenDisablePatch {
     [HarmonyPostfix]
     public static void Postfix(GameSettings __instance) => NativeHooks.SettingsScreenClosed(__instance);
-}
-
-[HarmonyPatch(typeof(GameSettingSet), "OnEnable")]
-internal static class SettingsPageEnablePatch {
-    [HarmonyPostfix]
-    public static void Postfix(GameSettingSet __instance) => NativeHooks.SettingsPageOpened(__instance);
 }
 
 [HarmonyPatch(typeof(GameMainMenu), "Start")]

@@ -48,6 +48,9 @@ internal sealed class NativeButton {
     private Action? _click;
     private bool _clickWired;
 
+    // Reused by RepairBaseButtons for every clone. Unity-null revalidates it after a scene change.
+    private static GameButton? _liveDonor;
+
     private NativeButton() { }
 
     // ---------------------------------------------------------------- creation
@@ -244,11 +247,17 @@ internal sealed class NativeButton {
     }
 
     private static GameButton? FindLiveDonor() {
+        if (_liveDonor != null && _liveDonor.audioSources != null &&
+            _liveDonor.hoverSound != null && _liveDonor.clickSound != null) return _liveDonor;
+        _liveDonor = null;
+
         try {
             foreach (var button in UnityEngine.Object.FindObjectsOfType<GameButton>()) {
                 if (button == null || button.gameObject == null || Staging.IsOurs(button.transform)) continue;
-                if (button.audioSources != null && button.hoverSound != null && button.clickSound != null)
+                if (button.audioSources != null && button.hoverSound != null && button.clickSound != null) {
+                    _liveDonor = button;
                     return button;
+                }
             }
         }
         catch {

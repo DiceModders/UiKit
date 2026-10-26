@@ -43,7 +43,10 @@ public sealed class UiDropdown : UiElement {
                     NativeDropdown.Create(runtime.Templates, parent.Root, values, index));
                 if (native != null) {
                     var nativeRt = native.Rt;
-                    if (nativeRt == null) { native.SetOptions(values, index); return CreateManaged(parent, values, index, onChanged); }
+                    if (nativeRt == null) {
+                        native.Destroy();
+                        return CreateManaged(parent, values, index, onChanged);
+                    }
                     var layout = UiFactory.Layout(nativeRt);
                     if (layout != null) {
                         layout.minHeight = layout.preferredHeight = native.Height;
@@ -58,7 +61,7 @@ public sealed class UiDropdown : UiElement {
             }
             catch (Exception e) {
                 UiGuard.Report("dropdown.native", e);
-                if (native?.Rt != null) UiGuard.Run("dropdown.cleanup", () => UiFactory.Destroy(native.Rt.gameObject));
+                if (native != null) UiGuard.Run("dropdown.cleanup", native.Destroy);
             }
 
             if (!SkinPolicy.MissingNative(runtime, "dropdown"))

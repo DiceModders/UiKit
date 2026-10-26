@@ -19,11 +19,14 @@ public sealed class ScoreboardColumnHandle : NativeHandle {
     private readonly Dictionary<int, string> _values = new();
     private readonly Dictionary<int, Cell> _cells = new();
 
+    private readonly Action<ScoreboardColumnHandle>? _onDispose;
     private string? _tooltip;
     private Sprite? _icon;
 
-    internal ScoreboardColumnHandle(UiScope scope, NativeUiHost host, string id, string? tooltip, Sprite? icon)
+    internal ScoreboardColumnHandle(UiScope scope, NativeUiHost host, string id, string? tooltip, Sprite? icon,
+                                    Action<ScoreboardColumnHandle>? onDispose)
         : base(scope, host, id) {
+        _onDispose = onDispose;
         _tooltip = tooltip;
         _icon = icon;
     }
@@ -153,6 +156,9 @@ public sealed class ScoreboardColumnHandle : NativeHandle {
             if (!cell.TrailCollapsed && cell.Trail != null) {
                 cell.TrailCollapsed = ScoreboardLayout.CollapseTrail(cell.Trail);
             }
+            // The game can assign Island after the row starts. Reapply the cached value on explicit layout events,
+            // not on a frame ticker.
+            ApplyCellText(cell);
         }
         return _cells.Count;
     }
@@ -169,11 +175,14 @@ public sealed class ScoreboardColumnHandle : NativeHandle {
     }
 
     protected override void DisposeCore() {
+        try { _onDispose?.Invoke(this); }
+        catch (Exception e) { UiLog.OnceError("scoreboard:dispose-callback", "scoreboard column cleanup failed: " + e); }
         Scope.Runtime.NativeUi.OnScoreboardColumnDisposed();
     }
 
     protected override void DetachCore() {
         foreach (var cell in _cells.Values) {
+            if (cell.TrailCollapsed) ScoreboardLayout.ReleaseTrail(cell.Trail);
             if (cell.Go != null) UiGuard.Run("scoreboard.destroy", () => UnityEngine.Object.Destroy(cell.Go), OwnerId);
         }
         _cells.Clear();
@@ -216,7 +225,6 @@ public sealed class ScoreboardColumnHandle : NativeHandle {
                 Tip = tip,
                 Trail = donor.gameObject,
             };
-            _cells[key] = cell;
 
             int donorIndex = donor.transform.GetSiblingIndex();
             go.transform.SetParent(donor.transform.parent, false);
@@ -227,6 +235,7 @@ public sealed class ScoreboardColumnHandle : NativeHandle {
             ApplyIcon(cell);
             ApplyTooltip(cell);
             ApplyCellText(cell);
+            _cells[key] = cell;
             return true;
         }
         catch (Exception e) {
@@ -329,7 +338,9 @@ public sealed class ScoreboardColumnHandle : NativeHandle {
             if (pair.Value.Go == null || pair.Value.Row == null) dead.Add(pair.Key);
         }
         for (int i = 0; i < dead.Count; i++) {
-            if (_cells.TryGetValue(dead[i], out var cell) && cell.Go != null) {
+            if (!_cells.TryGetValue(dead[i], out var cell)) continue;
+            if (cell.TrailCollapsed) ScoreboardLayout.ReleaseTrail(cell.Trail);
+            if (cell.Go != null) {
                 var go = cell.Go;
                 UiGuard.Run("scoreboard.prune", () => UnityEngine.Object.Destroy(go), OwnerId);
             }

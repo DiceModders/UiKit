@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using GameRules = DiceKingdoms.Meta.Rules;
+using GameScoreboard = DiceKingdoms.Interface.Scoreboard;
 using GameScoreboardRow = DiceKingdoms.Interface.ScoreboardRow;
 using GameSettingSet = DiceKingdoms.Meta.SettingSetInterface;
 using GameSettings = DiceKingdoms.Meta.SettingSetsInterface;
@@ -18,6 +19,11 @@ internal sealed class NativeUiHost {
     private readonly List<GameScoreboardRow> _scoreboardRows = new();
     private GameSettings? _settingsScreen;
     private GameRules? _rulesScreen;
+    private GameScoreboard? _scoreboardScreen;
+    private bool _settingsSyncQueued;
+    private bool _scoreboardSyncQueued;
+    private bool _scoreboardRefitQueued;
+    private bool _refreshQueued;
     private bool _disposed;
     private int _topBarSequence;
     private int _settingsBlockSequence;
@@ -129,6 +135,7 @@ internal sealed class NativeUiHost {
         _scoreboardRows.Clear();
         _settingsScreen = null;
         _rulesScreen = null;
+        _scoreboardScreen = null;
         UiGuard.Run("scoreboard.reset", ScoreboardLayout.Reset, "runtime");
         UiGuard.Run("settings.chrome.reset", SettingsPageChrome.Reset, "runtime");
     }
@@ -144,6 +151,22 @@ internal sealed class NativeUiHost {
     internal void OnSettingsScreen(GameSettings? settings) {
         if (_disposed || settings == null) return;
         _settingsScreen = settings;
+        RequestSettingsSync();
+    }
+
+    private void RequestSettingsSync() {
+        if (_disposed || _settingsSyncQueued) return;
+        _settingsSyncQueued = true;
+        LayoutOnce.Request(SyncSettingsScreen);
+    }
+
+    private void SyncSettingsScreen() {
+        _settingsSyncQueued = false;
+        if (_disposed) return;
+
+        var settings = _settingsScreen;
+        if (settings == null) return;
+
         EnsureSettingsLifetime(settings);
         WatchRoot(settings.transform);
         RefreshMatching(handle => handle is SettingsTabHandle or SettingsBlockHandle);
@@ -171,13 +194,6 @@ internal sealed class NativeUiHost {
     internal void OnSettingsScreenDestroyed(GameSettings? settings) {
         if (_disposed) return;
         OnSettingsScreenHidden(settings);
-    }
-
-    internal void OnSettingsPageChanged(GameSettingSet? set) {
-        if (_disposed) return;
-        if (set != null) WatchRoot(set.transform);
-        RefreshMatching(handle => handle is SettingsTabHandle or SettingsBlockHandle);
-        SettingsPageChrome.RequestRefresh();
     }
 
     /// <summary>The game rebuilt one of its own settings pages; append/re-append the blocks that belong to it.</summary>
@@ -253,6 +269,13 @@ internal sealed class NativeUiHost {
         bool remains = HasAttachedSettingsRows(block.Page, block);
         if (remains) UiGuard.Run("settings.chrome.keep", () => SettingsPageChrome.Apply(set, true), "runtime");
         else UiGuard.Run("settings.chrome.restore", () => SettingsPageChrome.Restore(set), "runtime");
+    }
+
+    /// <summary>The game built or showed its scoreboard; row-start can precede that event, so rescan once after layout.</summary>
+    internal void OnScoreboardShown(GameScoreboard? scoreboard) {
+        if (_disposed || scoreboard == null) return;
+        _scoreboardScreen = scoreboard;
+        RequestScoreboardSync();
     }
 
     internal void OnScoreboardRowReady(GameScoreboardRow? row) {
@@ -344,7 +367,50 @@ internal sealed class NativeUiHost {
         RequestScoreboardRefit();
     }
 
-    private void RequestScoreboardRefit() => LayoutOnce.Request(RefitScoreboard);
+    /// <summary>Re-scans native targets after a scene unload, in case the next scene was already loaded when Detach ran.</summary>
+    internal void RequestRefresh() {
+        if (_disposed || _refreshQueued) return;
+        _refreshQueued = true;
+        LayoutOnce.Request(FlushRefresh);
+    }
+
+    private void FlushRefresh() {
+        _refreshQueued = false;
+        Refresh();
+    }
+
+    private void RequestScoreboardSync() {
+        if (_disposed || _scoreboardSyncQueued) return;
+        _scoreboardSyncQueued = true;
+        LayoutOnce.Request(SyncScoreboard);
+    }
+
+    private void SyncScoreboard() {
+        _scoreboardSyncQueued = false;
+        if (_disposed) return;
+
+        var rows = UiGuard.Func("native.find-scoreboard", GameUi.FindScoreboardRows);
+        if (rows != null) {
+            _scoreboardRows.Clear();
+            _scoreboardRows.AddRange(rows);
+        }
+
+        var scoreboard = _scoreboardScreen;
+        if (scoreboard != null) WatchRoot(scoreboard.transform);
+        RefreshMatching(handle => handle is ScoreboardColumnHandle);
+        RequestScoreboardRefit();
+    }
+
+    private void RequestScoreboardRefit() {
+        if (_disposed || _scoreboardRefitQueued) return;
+        _scoreboardRefitQueued = true;
+        LayoutOnce.Request(FlushScoreboardRefit);
+    }
+
+    private void FlushScoreboardRefit() {
+        _scoreboardRefitQueued = false;
+        RefitScoreboard();
+    }
 
     /// <summary>Retries registrations that are still waiting after a canvas layout change; attached handles are untouched.</summary>
     private void RetryWaiting() {
@@ -414,7 +480,7 @@ internal sealed class NativeUiHost {
             if (go == null) return;
             var lifetime = go.GetComponent<ScoreboardRowLifetime>();
             if (lifetime == null) lifetime = go.AddComponent<ScoreboardRowLifetime>();
-            lifetime?.Bind(this, row);
+            ScoreboardRowLifetimeRegistry.Bind(lifetime, this, row);
         }
         catch (Exception e) {
             UiLog.Once("scoreboard:lifetime-add", "could not watch a scoreboard row: " + e.Message);
@@ -428,7 +494,7 @@ internal sealed class NativeUiHost {
             if (go == null) return;
             var lifetime = go.GetComponent<SettingsScreenLifetime>();
             if (lifetime == null) lifetime = go.AddComponent<SettingsScreenLifetime>();
-            lifetime?.Bind(this, settings);
+            SettingsScreenLifetimeRegistry.Bind(lifetime, this, settings);
         }
         catch (Exception e) {
             UiLog.Once("settings:lifetime-add", "could not watch the Settings screen: " + e.Message);
@@ -505,6 +571,10 @@ internal sealed class NativeUiHost {
         _scoreboardRows.Clear();
         _settingsScreen = null;
         _rulesScreen = null;
+        _scoreboardScreen = null;
+        _scoreboardSyncQueued = false;
+        _scoreboardRefitQueued = false;
+        _refreshQueued = false;
         UiGuard.Run("scoreboard.reset", ScoreboardLayout.Reset, "runtime");
         UiGuard.Run("settings.chrome.reset", SettingsPageChrome.Reset, "runtime");
     }

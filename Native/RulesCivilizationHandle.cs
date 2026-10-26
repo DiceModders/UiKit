@@ -15,6 +15,7 @@ namespace DiceModders.UiKit.Native;
 /// <see cref="NativeHandle.Id"/>; <see cref="CivilizationId"/> is the stable numeric value derived from it.
 /// </summary>
 public sealed class RulesCivilizationHandle : NativeHandle {
+    private readonly Action<RulesCivilizationHandle>? _onDispose;
     private string _name;
     private Func<GameTechTree?>? _techTree;
     private GameRules? _rules;
@@ -25,8 +26,10 @@ public sealed class RulesCivilizationHandle : NativeHandle {
     private int _valueIndex = -1;
 
     internal RulesCivilizationHandle(UiScope scope, NativeUiHost host, string key, int civilizationId, string name,
-                                     Func<GameTechTree?>? techTree, int skinsLike)
+                                     Func<GameTechTree?>? techTree, int skinsLike,
+                                     Action<RulesCivilizationHandle>? onDispose)
         : base(scope, host, key) {
+        _onDispose = onDispose;
         Key = key;
         CivilizationId = civilizationId;
         _name = name;
@@ -143,6 +146,11 @@ public sealed class RulesCivilizationHandle : NativeHandle {
         _tmp = tmp;
         _optionIndex = optionIndex;
         _valueIndex = optionIndex;
+    }
+
+    protected override void DisposeCore() {
+        try { _onDispose?.Invoke(this); }
+        catch (Exception e) { UiLog.OnceError("rules:dispose-callback", "civilization cleanup failed: " + e); }
     }
 
     protected override void DetachCore() {

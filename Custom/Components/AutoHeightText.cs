@@ -21,9 +21,6 @@ internal sealed class AutoHeightText : MonoBehaviour {
 
     public bool Enabled { get; private set; }
 
-    /// <summary>Called after the measured height changed, so owners can re-run post-layout chrome work.</summary>
-    internal Action? AfterMeasure { get; set; }
-
     public void Bind(TMP_Text? text, LayoutElement? layout) {
         _text = text;
         _layout = layout;
@@ -76,29 +73,44 @@ internal sealed class AutoHeightText : MonoBehaviour {
     }
 
     private void Measure() {
-        if (!Enabled || _text == null || _layout == null) return;
+        if (!Enabled) return;
 
-        float width = _text.rectTransform.rect.width;
+        var text = _text;
+        var layout = _layout;
+        if (text == null || layout == null) return;
+
+        float width;
+        try {
+            var rect = text.rectTransform;
+            if (rect == null) return;
+            width = rect.rect.width;
+        }
+        catch (Exception) {
+            return;
+        }
         if (width < 1f) return;   // not laid out yet; the next frame or a width change will retry
 
-        float height = Mathf.Ceil(_text.GetPreferredValues(_text.text, width, 0f).y);
-        float minimum = Mathf.Ceil(_text.fontSize * 1.2f);
+        // TMP can release its shared material while a row is being rebuilt. Measure only when the text is measurable;
+        // the row's minimum height is a safe fallback.
+        if (!TmpTextSafety.TryPreferredValues(text, text.text, width, 0f, out var preferred)) return;
+        float height = Mathf.Ceil(preferred.y);
+        float minimum = Mathf.Ceil(text.fontSize * 1.2f);
         if (height < minimum) height = minimum;
 
         if (Mathf.Abs(height - _lastHeight) < 0.5f) return;
         _lastHeight = height;
 
-        _layout.minHeight = height;
-        _layout.preferredHeight = height;
-        _layout.flexibleHeight = 0f;
+        layout.minHeight = height;
+        layout.preferredHeight = height;
+        layout.flexibleHeight = 0f;
 
-        var parent = _text.rectTransform.parent;
+        var parent = text.rectTransform.parent;
         if (parent != null) {
             var rect = parent.TryCast<RectTransform>();
             if (rect != null) LayoutRebuilder.MarkLayoutForRebuild(rect);
         }
 
-        UiGuard.Callback("auto-height", AfterMeasure);
+        AutoHeightRegistry.Invoke(this);
     }
 
     private void OnDisable() {
@@ -111,6 +123,7 @@ internal sealed class AutoHeightText : MonoBehaviour {
 
     private void OnDestroy() {
         OnDisable();
+        AutoHeightRegistry.Clear(this);
         _text = null;
         _layout = null;
     }

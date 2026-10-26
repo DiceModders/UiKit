@@ -27,6 +27,7 @@ internal sealed class SettingsRowHost {
     private readonly UiKitRuntime _runtime;
     private readonly float _contentLeft;
     private readonly List<SettingsRowView> _views = new();
+    private int _batchDepth;
 
     public SettingsRowHost(UiScope scope, RectTransform holder, GameSettingEntry entryPrefab, GameLabel? headerPrefab,
                            float contentLeft = 0f) {
@@ -43,6 +44,21 @@ internal sealed class SettingsRowHost {
     public GameLabel? HeaderPrefab { get; }
     public bool IsAlive => Holder != null && EntryPrefab != null;
     public IReadOnlyList<SettingsRowView> Views => _views;
+
+    /// <summary>Builds a group of rows with one layout rebuild at the start and one at the end.</summary>
+    public void BeginBatch() {
+        if (_batchDepth++ == 0) RebuildLayout();
+    }
+
+    public void EndBatch() {
+        if (_batchDepth <= 0) return;
+        _batchDepth--;
+        if (_batchDepth == 0) RebuildLayout();
+    }
+
+    private void RebuildLayout() {
+        if (Holder != null) LayoutRebuilder.ForceRebuildLayoutImmediate(Holder);
+    }
 
     public SettingsRowView? Build(SettingsRowHandle row) {
         if (row == null || !IsAlive) return null;
@@ -141,7 +157,7 @@ internal sealed class SettingsRowHost {
             if (addLabelGap) AddLabelGap(entryGo);
             entryGo.transform.SetParent(Holder, false);
             entryGo.SetActive(true);
-            LayoutRebuilder.ForceRebuildLayoutImmediate(Holder);
+            if (_batchDepth == 0) RebuildLayout();
             return entryGo;
         }
         catch {
@@ -329,7 +345,7 @@ internal sealed class SettingsRowHost {
             layout.flexibleHeight = 0f;
             var auto = text.gameObject.AddComponent<AutoHeightText>();
             auto.Bind(text, layout);
-            auto.AfterMeasure = SettingsPageChrome.RequestRefresh;
+            AutoHeightRegistry.SetAfterMeasure(auto, SettingsPageChrome.RequestRefresh);
             auto.SetEnabled(true);
             view.AutoHeight = auto;
         }

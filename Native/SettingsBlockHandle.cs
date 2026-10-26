@@ -151,7 +151,7 @@ public sealed class SettingsBlockHandle : NativeHandle {
         }
 
         if (set == null) {
-            UiLog.Once("settings:block-missing:" + Id, $"settings block {Id} is waiting for the {Page} page");
+            UiLog.InfoOnce("settings:block-missing:" + Id, $"settings block {Id} is waiting for the {Page} page");
             DetachRows();
             MarkWaiting("waiting for the " + Page + " Settings page");
             return;
@@ -226,7 +226,13 @@ public sealed class SettingsBlockHandle : NativeHandle {
         _pageSet = set;
         _rowHost = host;
 
-        foreach (var row in _rows) BuildRow(row);
+        host.BeginBatch();
+        try {
+            foreach (var row in _rows) BuildRow(row);
+        }
+        finally {
+            host.EndBatch();
+        }
         _host.ReorderSettingsBlocks(set);
         UpdateChrome(set);
         LayoutRebuilder.MarkLayoutForRebuild(set.holder);

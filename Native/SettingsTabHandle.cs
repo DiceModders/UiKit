@@ -246,7 +246,13 @@ public sealed class SettingsTabHandle : NativeHandle {
             var view = new SettingsTabView(settings, tabArea, titleGo, pageGo, pageRt, rows, tabTitle);
             AppendTab(tabArea, tabTitle, pageRt);
             _view = view;
-            foreach (var row in _rows) BuildRow(row);
+            rows.BeginBatch();
+            try {
+                foreach (var row in _rows) BuildRow(row);
+            }
+            finally {
+                rows.EndBatch();
+            }
             MarkAttached("settings");
         }
         catch {

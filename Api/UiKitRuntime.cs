@@ -274,6 +274,9 @@ internal sealed class UiKitRuntime {
         }, "runtime");
         UiGuard.Run("scene.delegates", Il2CppDelegates.Sweep, "runtime");
         UiGuard.Run("scene.native", NativeUi.Detach, "runtime");
+        // An additive/ordered load can deliver sceneLoaded before the old sceneUnloaded. Re-scan once on the next
+        // layout pass so native targets that survived the unload are not left detached.
+        UiGuard.Run("scene.native.refresh", NativeUi.RequestRefresh, "runtime");
     }
 
     internal void Dispose() {

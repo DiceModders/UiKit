@@ -20,6 +20,7 @@ internal static class SettingsPageChrome {
     private static readonly List<WheelTarget> Targets = new();
     private static readonly List<WheelSpeed> Speeds = new();
     private static readonly List<LobbyFit> LobbyFits = new();
+    private static bool _refreshQueued;
 
     public static void Apply(GameSettingSet? set, bool hasMods) {
         if (set == null || set.holder == null) return;
@@ -46,7 +47,16 @@ internal static class SettingsPageChrome {
     }
 
     /// <summary>Schedules the chrome adjustment for after the game's next layout pass. Requests are coalesced.</summary>
-    public static void RequestRefresh() => LayoutOnce.Request(RefreshVisible);
+    public static void RequestRefresh() {
+        if (_refreshQueued) return;
+        _refreshQueued = true;
+        LayoutOnce.Request(FlushRefresh);
+    }
+
+    private static void FlushRefresh() {
+        _refreshQueued = false;
+        RefreshVisible();
+    }
 
     /// <summary>Shows or hides the shared Close-button shift for whichever page is visible.</summary>
     public static void RefreshVisible() {
@@ -96,6 +106,7 @@ internal static class SettingsPageChrome {
     }
 
     public static void Reset() {
+        _refreshQueued = false;
         Active.Clear();
         for (int i = 0; i < Targets.Count; i++) {
             var image = Targets[i].Image;
@@ -205,7 +216,7 @@ internal static class SettingsPageChrome {
         image.color = new Color(0f, 0f, 0f, 0f);
         image.raycastTarget = true;
         Targets.Add(new WheelTarget(holder, image));
-        UiLog.Once("settings:wheeltarget", "settings: scroll content now accepts raycasts, so the game's ScrollRect gets the wheel");
+        UiLog.InfoOnce("settings:wheeltarget", "settings: scroll content now accepts raycasts, so the game's ScrollRect gets the wheel");
     }
 
     private static void RemoveWheelTarget(RectTransform? holder) {

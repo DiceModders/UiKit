@@ -10,20 +10,5 @@ namespace DiceModders.UiKit.Native;
 internal sealed class ScoreboardRowLifetime : MonoBehaviour {
     public ScoreboardRowLifetime(IntPtr ptr) : base(ptr) { }
 
-    private NativeUiHost? _host;
-    private DiceKingdoms.Interface.ScoreboardRow? _row;
-
-    public void Bind(NativeUiHost host, DiceKingdoms.Interface.ScoreboardRow row) {
-        _host = host;
-        _row = row;
-    }
-
-    private void OnDestroy() {
-        var host = _host;
-        var row = _row;
-        _host = null;
-        _row = null;
-        try { host?.OnScoreboardRowDestroyed(row); }
-        catch (Exception e) { UiLog.Once("scoreboard:lifetime", "scoreboard row lifetime cleanup failed: " + e.Message); }
-    }
+    private void OnDestroy() => ScoreboardRowLifetimeRegistry.Detach(this);
 }

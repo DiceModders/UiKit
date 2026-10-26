@@ -54,7 +54,8 @@ public sealed class RulesApi {
         int id = _host.AllocateCivilizationId(stableKey);
         RulesCivilizationHandle? handle = null;
         try {
-            handle = new RulesCivilizationHandle(_scope, _host, stableKey, id, name.Trim(), techTree, skinsLike);
+            handle = new RulesCivilizationHandle(_scope, _host, stableKey, id, name.Trim(), techTree, skinsLike,
+                value => _items.Remove(value.Key));
             if (!SkinPolicy.AllowNative(_scope.Runtime)) {
                 handle.MarkUnsupported("TemplatePolicy.ManagedOnly disables native Rules-screen additions");
             }
