@@ -12,11 +12,12 @@ using UnityEngine.SceneManagement;
 namespace DiceModders.UiKit;
 
 /// <summary>
-/// One process-wide runtime shared by every mod: asset cache, theme, layer canvases and scene hooks.
-/// Scopes are cheap ownership tokens; they never create canvases or scan assets.
+/// One process-wide runtime shared by every mod: asset cache, theme, layer canvases, scene hooks and the one-time startup
+/// readiness point. Scopes are cheap ownership tokens; they never create canvases or scan assets.
 /// </summary>
 internal sealed class UiKitRuntime {
     private readonly List<UiScope> _scopes = new();
+    private readonly List<ReadyRegistration> _readyCallbacks = new();
     private UnityAction<Scene, LoadSceneMode>? _sceneLoaded;
     private UnityAction<Scene>? _sceneUnloaded;
     private DemoController? _demo;
@@ -24,6 +25,8 @@ internal sealed class UiKitRuntime {
     private int _windowIndex;
     private int _scopeIndex;
     private bool _disposed;
+    private bool _uiReady;
+    private bool _uiReadyCandidate;
 
     internal UiKitRuntime(ManualLogSource? log, UiOptions? options) {
         Options = options ?? new UiOptions();
@@ -71,6 +74,7 @@ internal sealed class UiKitRuntime {
     internal NativeUiHost NativeUi { get; }
     internal UiOptions Options { get; }
     internal bool IsDisposed => _disposed;
+    internal bool IsUiReady => _uiReady;
 
     internal IReadOnlyList<UiScope> Scopes => _scopes;
     internal bool IsDemoVisible => _demo != null && _demo.IsVisible;
@@ -134,6 +138,77 @@ internal sealed class UiKitRuntime {
         if (scope != null) _scopes.Remove(scope);
     }
 
+    internal void RegisterWhenReady(UiScope scope, Action<UiScope> build) {
+        if (_disposed || scope == null || build == null) return;
+        if (_uiReady) {
+            UiGuard.Run("scope.ready", () => build(scope), scope.Id);
+            return;
+        }
+        _readyCallbacks.Add(new ReadyRegistration(scope, build));
+    }
+
+    internal void RemoveReady(UiScope scope) {
+        if (scope == null) return;
+        for (int i = _readyCallbacks.Count - 1; i >= 0; i--) {
+            if (ReferenceEquals(_readyCallbacks[i].Scope, scope)) _readyCallbacks.RemoveAt(i);
+        }
+    }
+
+    /// <summary>
+    /// Checks whether the first game UI is usable for content registration. Two consecutive successful checks are
+    /// required so a top bar that appears during scene construction is not announced before the screen has settled.
+    /// </summary>
+    internal void TryMarkUiReady() {
+        if (_disposed || _uiReady) return;
+
+        if (!HasUsableGameUi()) {
+            _uiReadyCandidate = false;
+            return;
+        }
+
+        if (!_uiReadyCandidate) {
+            _uiReadyCandidate = true;
+            return;
+        }
+
+        MarkUiReady();
+    }
+
+    private bool HasUsableGameUi() {
+        var bar = UiGuard.Func("ready.bar", GameUi.FindActiveBar, "runtime");
+        if (bar == null) return false;
+
+        var layer = UiGuard.Func("ready.layers", () => Layers.Get(Options.DefaultLayer), "runtime");
+        if (layer == null) return false;
+
+        return UiGuard.Value("ready.layer-refresh", () => {
+            Layers.Refresh();
+            return true;
+        }, false, "runtime");
+    }
+
+    private void MarkUiReady() {
+        _uiReady = true;
+        _uiReadyCandidate = false;
+        UiLog.Info("game UI is ready; opening the content registration point");
+
+        UiGuard.Run("ready.native", NativeUi.Refresh, "runtime");
+
+        var callbacks = _readyCallbacks.ToArray();
+        _readyCallbacks.Clear();
+
+        int fired = 0;
+        for (int i = 0; i < callbacks.Length; i++) {
+            var registration = callbacks[i];
+            var scope = registration.Scope;
+            if (scope == null || !scope.IsAlive) continue;
+            UiGuard.Run("scope.ready", () => registration.Build(scope), scope.Id);
+            fired++;
+        }
+
+        if (fired > 0) UiLog.Info($"content registration point fired for {fired} callback(s)");
+    }
+
     internal int NextWindowIndex() => _windowIndex++;
 
     private static void RegisterComponents() {
@@ -182,6 +257,7 @@ internal sealed class UiKitRuntime {
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode) {
         if (_disposed) return;
+        if (!_uiReady) _uiReadyCandidate = false;
 
         UiGuard.Run("scene.assets", () => {
             Assets.Invalidate();
@@ -191,10 +267,12 @@ internal sealed class UiKitRuntime {
         UiGuard.Run("scene.layers", Layers.Refresh, "runtime");
         UiGuard.Run("scene.native", NativeUi.Refresh, "runtime");
         UiGuard.Run("scene.demo", () => _demo?.OnSceneLoaded(), "runtime");
+        UiGuard.Run("scene.ready", TryMarkUiReady, "runtime");
     }
 
     private void OnSceneUnloaded(Scene scene) {
         if (_disposed) return;
+        if (!_uiReady) _uiReadyCandidate = false;
 
         UiGuard.Run("scene.assets", () => {
             Assets.Invalidate();
@@ -207,6 +285,8 @@ internal sealed class UiKitRuntime {
     internal void Dispose() {
         if (_disposed) return;
         _disposed = true;
+        _uiReady = false;
+        _uiReadyCandidate = false;
 
         UiGuard.Run("runtime.unsubscribe", () => {
             if (_sceneLoaded != null) SceneManager.sceneLoaded -= _sceneLoaded;
@@ -223,6 +303,7 @@ internal sealed class UiKitRuntime {
         UiGuard.Run("native.pump", DestroyPump, "runtime");
         UiGuard.Run("native.dispose", NativeUi.Dispose, "runtime");
 
+        _readyCallbacks.Clear();
         var scopes = _scopes.ToArray();
         _scopes.Clear();
         for (int i = scopes.Length - 1; i >= 0; i--) {
@@ -236,5 +317,15 @@ internal sealed class UiKitRuntime {
         UiGuard.Run("runtime.layers", Layers.Dispose, "runtime");
 
         UiLog.Info("UI kit runtime disposed");
+    }
+
+    private sealed class ReadyRegistration {
+        internal ReadyRegistration(UiScope scope, Action<UiScope> build) {
+            Scope = scope;
+            Build = build;
+        }
+
+        internal UiScope Scope { get; }
+        internal Action<UiScope> Build { get; }
     }
 }

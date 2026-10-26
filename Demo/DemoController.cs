@@ -107,7 +107,10 @@ internal sealed class DemoController {
             _windows.Clear();
 
             BuildMain();
-            scope.Native.TopBar.AddIconButton("hammer", "UiKit demo", Toggle);
+            scope.WhenReady(ui => {
+                UiLog.Info("demo: the startup registration point fired");
+                ui.Native.TopBar.AddIconButton("hammer", "UiKit demo", Toggle);
+            });
             BuildDemoSettings();
             BuildNativeDemo(scope);
             BuildProbe(Layer.Game, "This window is on Layer.Game. It should sit in the HUD band, below the game's popups.",

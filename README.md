@@ -6,6 +6,7 @@ A shared UI runtime for Dice Kingdoms mods. One plugin owns the canvases, assets
 > scoreboard columns and Rules civilizations. Native registrations are declarative and lifecycle-managed by the library.
 > The public API is nullable-annotated and follows a null/no-throw error contract. Breaking renames from the P0 names have
 > been applied without compatibility aliases. Native additions are add-only; editing existing game UI is deferred.
+> Startup content uses `scope.WhenReady`; a mod does not need its own UI-ready hook.
 
 ## Setup
 
@@ -13,7 +14,7 @@ A shared UI runtime for Dice Kingdoms mods. One plugin owns the canvases, assets
    Only one assembly with this name can be installed: remove any older build (including `UIKit_Another_Version`) first.
 2. Reference `DiceModders.UiKit.dll` from your mod.
 3. Add a BepInEx dependency on the UiKit plugin.
-4. Create exactly one scope in `Load` and dispose it in `Unload`.
+4. Create exactly one scope in `Load`, register content with `WhenReady`, and dispose the scope in `Unload`.
 
 ```csharp
 using DiceModders.UiKit;
@@ -24,15 +25,13 @@ public sealed class MyPlugin : BasePlugin {
 
     public override void Load() {
         _ui = UiKit.CreateScope("my.mod.id");
+        _ui?.WhenReady(ui => {
+            ui.Native.TopBar.AddIconButton("hammer", "Open my window", () => ShowMyWindow(ui));
+        });
     }
 
-    // Call this after the game UI has loaded: from your own game hook, a top-bar button,
-    // or a menu screen callback. Creating managed windows during plugin Load works, but the
-    // game's sprites and font may not be loaded yet and the managed fallback look is used.
-    private void ShowMyWindow() {
-        if (_ui == null) return;
-
-        var window = _ui.Custom.Window(w => {
+    private static void ShowMyWindow(UiScope ui) {
+        var window = ui.Custom.Window(w => {
             w.Title("My window")
              .Size(420, 280)
              .Center()
@@ -61,6 +60,29 @@ public sealed class MyPlugin : BasePlugin {
 stop the shared runtime, scan assets or patch the game themselves. All UI calls must run on the main thread; there is no
 dispatcher.
 
+## Startup registration
+
+`scope.WhenReady(Action<UiScope>)` is the library's single guaranteed UI-readiness registration point. It is a scope
+method, not a static event:
+
+* each registered callback runs once after the first ready game UI (normally the main menu, not the first match);
+* it fires immediately when the scope registers after the runtime has marked the UI ready;
+* callbacks run in registration order on the main thread through the error boundary; one failure does not stop the others;
+* disposing the scope drops a callback that has not run yet;
+* it does not repeat for a match, scene, tab or screen.
+
+Readiness is a one-time process state, not a per-scene signal: after it, a late registration runs immediately and native
+handles deal with the current scene. "Ready" means the runtime has an active game top bar, the shared layer canvases exist
+and the native host has been refreshed.
+`WhenReady` does not wait for Settings, the scoreboard, the Rules screen or match-only templates; those native handles remain
+`Pending` and attach when their screen appears. A callback may run before a match is loaded, so build match-specific windows
+lazily or in a later game callback instead of assuming match art exists.
+
+Registering UI from your own Harmony or scene hooks is allowed, but UiKit cannot guarantee the game UI is ready there:
+such a hook may run before the canvases, assets or templates exist. `WhenReady` is the one library-provided entry point that
+guarantees the first ready game UI. Native handles may still be registered directly from `Load`; they are stable and attach
+later.
+
 ## Lifecycle and error contract
 
 * The UiKit plugin owns the runtime. A scope is the only lifetime token a mod creates.
@@ -72,6 +94,8 @@ dispatcher.
   Library errors never escape as exceptions.
 * Native registrations are stable handles. An unavailable target, template or policy is represented by the handle's
   `NativeState`, not by throwing. Calling native APIs from plugin `Load` is safe.
+* `scope.WhenReady(Action<UiScope>)` is the one guaranteed startup registration point; see **Startup registration**.
+  Registering UI from your own hooks is allowed, but UiKit does not guarantee readiness there.
 * The assembly has nullable annotations enabled (`#nullable enable`). Treat factory results and optional properties as
   nullable (`UiScope?`, `UiWindow?`, `UiText?`, `TopBarButtonHandle?`, ...).
 
@@ -131,9 +155,9 @@ without restarting. The demo contains a scrollable widget gallery, layer probes 
 window-ornament switching, a hammer button in the game's top bar, a **UiKit** Settings tab, a scoreboard column, and a
 Rules civilization when a game tech tree can be found.
 
-Windows created before the game's UI is loaded use managed fallbacks. Open the demo after entering a match and press
-**Rebuild (re-scan native skins)** to recreate managed widgets with native templates. The same actions are available from
-code:
+Windows created before the game's UI is loaded use managed fallbacks. The demo registers its top-bar button through
+`WhenReady`. Open the demo after entering a match and press **Rebuild (re-scan native skins)** to recreate managed widgets
+with native templates. The same actions are available from code:
 
 ```csharp
 UiKit.ShowDemo();
@@ -269,8 +293,9 @@ The native skins are real clones of live game controls:
 * scrollbars from the game's vertical scroll views.
 
 A managed widget chooses its skin when it is created. Native templates are cached per scene and re-discovered after a
-scene change, but an already-created widget is not re-skinned. Create windows after the game UI has loaded to get native
-skins; creating them during plugin `Load` normally uses the managed fallback. Use the demo's **Rebuild** action or
+scene change, but an already-created widget is not re-skinned. Build windows in `WhenReady` (or later) to get native skins;
+creating them during plugin `Load` normally uses the managed fallback. `WhenReady` still sees only templates available at
+the first ready UI, usually the main menu, so open match-specific windows lazily. Use the demo's **Rebuild** action or
 `UiKit.RebuildDemo()` to test after entering a match.
 
 Missing templates are logged once and never crash the UI. In `NativeOnly` mode, always null-check managed widget factory
@@ -332,9 +357,10 @@ with no icon). An unavailable target, missing template or `ManagedOnly` policy p
 `Pending`, `Failed` or `Unsupported`; it never throws.
 
 The host retries pending/failed/detached registrations once per second, refreshes scoreboard layout four times per second
-while columns exist, and sweeps delegate holders every ten seconds. Scene changes invalidate templates and assets and
-refresh all native registrations. The retry pump does no work when no native registrations exist. No mod needs a
-dispatcher or its own game hooks.
+while columns exist, and sweeps delegate holders every ten seconds. Until the first game UI is ready, the pump also drives
+the one-time readiness check. Scene changes invalidate templates and assets and refresh all native registrations. No mod
+needs a dispatcher or its own game hooks merely to keep native registrations attached; `WhenReady` is the only lifecycle
+callback for content readiness.
 
 Native additions are inserted into the game's own hierarchy. The player and other mods see ordinary game buttons, tabs,
 rows and option entries; the game's layout, sound and hover behavior continue to work. Native integrations require game
@@ -498,6 +524,8 @@ throwing.
 * Everything is main-thread-only. Callbacks run on Unity's main thread, and the retry/layout pump is a Unity component.
 * Scoreboard data is pushed by the mod (`SetValue`/`SetValues`/`ClearValues`); Rules tech-tree and skin lookup are answered
   on demand by the library's hooks. There are no per-frame mod callbacks.
+* There are no per-match, per-tab or per-screen callbacks. `WhenReady` fires once, and native handles reattach themselves.
+  If you need a game event, use your own hook, but that hook has no UiKit readiness guarantee.
 * Native game hooks are best-effort. If a future game update changes a signature, the library logs the failure and keeps
   running; native integrations may remain `Pending`/`Failed` instead of crashing the game.
 

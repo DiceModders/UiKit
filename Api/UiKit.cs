@@ -5,8 +5,9 @@ using BepInEx.Unity.IL2CPP;
 namespace DiceModders.UiKit;
 
 /// <summary>
-/// The single public entry point of the library. The UiKit plugin owns initialization and shutdown; a mod only calls
-/// <see cref="CreateScope"/> and works through <c>scope.Custom</c> and <c>scope.Native</c>.
+/// The single public entry point of the library. The UiKit plugin owns initialization and shutdown; a mod calls
+/// <see cref="CreateScope"/>, registers startup content with <see cref="UiScope.WhenReady"/>, and works through
+/// <c>scope.Custom</c> and <c>scope.Native</c>.
 /// </summary>
 public static class UiKit {
     private static UiKitRuntime? _runtime;

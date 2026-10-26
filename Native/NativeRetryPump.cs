@@ -4,8 +4,9 @@ using UnityEngine;
 namespace DiceModders.UiKit.Native;
 
 /// <summary>
-/// One tiny persistent component for the work that cannot be purely event driven: scoreboard layout and retrying native
-/// registrations whose target or asset was not available yet. With nothing registered it only compares two floats.
+/// One tiny persistent component for the work that cannot be purely event driven: the one-time UI readiness check,
+/// scoreboard layout and retrying native registrations whose target or asset was not available yet. After readiness and
+/// with nothing registered, the per-frame work is a few float comparisons; the delegate sweep runs every ten seconds.
 /// </summary>
 internal sealed class NativeRetryPump : MonoBehaviour {
     public NativeRetryPump(IntPtr ptr) : base(ptr) { }
@@ -14,6 +15,7 @@ internal sealed class NativeRetryPump : MonoBehaviour {
     private float _nextLayout;
     private float _nextRetry;
     private float _nextSweep;
+    private float _nextReady;
 
     public void Init(UiKitRuntime runtime) => _runtime = runtime;
 
@@ -22,6 +24,11 @@ internal sealed class NativeRetryPump : MonoBehaviour {
         if (runtime == null || runtime.IsDisposed) return;
 
         float now = Time.unscaledTime;
+        if (!runtime.IsUiReady && now >= _nextReady) {
+            _nextReady = now + 0.25f;
+            UiGuard.Run("ui.ready", runtime.TryMarkUiReady, "runtime");
+        }
+
         if (now >= _nextLayout) {
             _nextLayout = now + 0.25f;
             if (runtime.NativeUi.HasScoreboardColumns)
