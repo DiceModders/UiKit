@@ -42,7 +42,7 @@ public abstract class NativeHandle : IDisposable {
     internal UiScope Scope { get; }
     internal string OwnerId => Scope.Id;
 
-    /// <summary>Called by the host on scene changes, retries and relevant game-screen events.</summary>
+    /// <summary>Called by the host on scene changes and on events from the relevant game screen.</summary>
     internal abstract void Refresh(NativeScene scene);
 
     /// <summary>Drops live game objects while keeping the registration and its cached data.</summary>

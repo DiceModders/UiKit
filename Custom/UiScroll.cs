@@ -10,6 +10,7 @@ namespace DiceModders.UiKit.Custom;
 public sealed class UiScroll : UiElement {
     private readonly ScrollRect _scroll;
     private readonly UiContainer _content;
+    private PointerTracker.Entry? _wheel;
 
     internal UiScroll(RectTransform root, ScrollRect scroll, UiContainer content) : base(root) {
         _scroll = scroll;
@@ -36,7 +37,7 @@ public sealed class UiScroll : UiElement {
             scroll.vertical = true;
             scroll.movementType = ScrollRect.MovementType.Clamped;
             scroll.inertia = true;
-            scroll.scrollSensitivity = 30f;
+            scroll.scrollSensitivity = 0f;
 
             var viewport = UiFactory.NewRect("DM Viewport", root);
             UiFactory.Stretch(viewport);
@@ -89,13 +90,40 @@ public sealed class UiScroll : UiElement {
                 return null;
             }
 
-            return new UiScroll(root, scroll, container);
+            var result = new UiScroll(root, scroll, container);
+            result.BindWheel(viewport);
+            return result;
         }
         catch (Exception e) {
             UiGuard.Report("scroll.create", e);
             UiFactory.Destroy(root.gameObject);
             return null;
         }
+    }
+
+    private void BindWheel(RectTransform viewport) {
+        _wheel = PointerTracker.Add(Root,
+            position => viewport != null && viewport.gameObject.activeInHierarchy &&
+                        RectTransformUtility.RectangleContainsScreenPoint(viewport, position, PointerTracker.CameraFor(viewport)),
+            OnWheel,
+            null,
+            wheelPriority: 1);
+    }
+
+    private bool OnWheel(float notches) {
+        if (_scroll == null || _scroll.content == null || _scroll.viewport == null) return false;
+        float range = _scroll.content.rect.height - _scroll.viewport.rect.height;
+        if (range <= 1f) return false;
+
+        float next = _scroll.verticalNormalizedPosition + notches * 30f / range;
+        _scroll.verticalNormalizedPosition = Mathf.Clamp01(next);
+        return true;
+    }
+
+    public override void Dispose() {
+        PointerTracker.Remove(_wheel);
+        _wheel = null;
+        base.Dispose();
     }
 
     private static Scrollbar? BuildScrollbar(RectTransform root, UiKitRuntime runtime) {

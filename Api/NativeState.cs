@@ -15,7 +15,7 @@ public enum NativeState {
     /// <summary>The registration was attached earlier and is now waiting to be attached again.</summary>
     Detached,
 
-    /// <summary>The last attempt failed. The library retries automatically; <see cref="NativeHandle.Status"/> says why.</summary>
+    /// <summary>The last attempt failed. The library retries when a relevant scene, screen, row or layout event occurs; <see cref="NativeHandle.Status"/> says why.</summary>
     Failed,
 
     /// <summary>The active host policy or the game does not support this registration.</summary>

@@ -4,14 +4,12 @@ using System.Globalization;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using TMPro;
 using UnityEngine;
-using UnityEngine.UI;
 using GameLabel = DiceKingdoms.Interface.Label;
 using GameSettingEntry = DiceKingdoms.Meta.SettingEntryInterface;
 using GameSettingSet = DiceKingdoms.Meta.SettingSetInterface;
 using GameSettings = DiceKingdoms.Meta.SettingSetsInterface;
 using GameTabArea = DiceKingdoms.Interface.TabArea;
 using GameTabTitle = DiceKingdoms.Interface.TabAreaTabTitle;
-using GameToggle = DiceKingdoms.Interface.Toggle;
 
 namespace DiceModders.UiKit.Native;
 
@@ -20,9 +18,6 @@ namespace DiceModders.UiKit.Native;
 /// hierarchy, so every mod and the game itself see it as a normal tab.
 /// </summary>
 public sealed class SettingsTabHandle : NativeHandle {
-    private const float LabelInputGap = 40f;
-    private const float SliderWidth = 400f;
-
     private readonly UiScope _scope;
     private readonly Action<SettingsTabHandle> _onDispose;
     private readonly List<SettingsRowHandle> _rows = new();
@@ -63,13 +58,15 @@ public sealed class SettingsTabHandle : NativeHandle {
     }
 
     public SettingsRowHandle? AddSlider(string? label, float min, float max, float value, Action<float>? changed,
-                                  string? format = "0.##") {
+                                  string? format = "0.##", bool wholeNumbers = false) {
         var row = NewRow(SettingsRowKind.Slider, label);
         if (row == null) return null;
         row.Min = UiGuard.Finite(min, 0f);
         row.Max = UiGuard.Finite(max, row.Min + 1f);
         if (row.Max <= row.Min) row.Max = row.Min + 1f;
         row.FloatValue = Mathf.Clamp(UiGuard.Finite(value, row.Min), row.Min, row.Max);
+        row.WholeNumbers = wholeNumbers;
+        if (wholeNumbers) row.FloatValue = Mathf.Round(row.FloatValue);
         row.Format = SafeFormat(format);
         row.FloatChanged = changed;
         if (HasView) BuildRow(row);
@@ -93,8 +90,44 @@ public sealed class SettingsTabHandle : NativeHandle {
     public SettingsRowHandle? AddButton(string? label, string? buttonText, Action? clicked) {
         var row = NewRow(SettingsRowKind.Button, label);
         if (row == null) return null;
-        row.ButtonText = string.IsNullOrWhiteSpace(buttonText) ? "Open" : buttonText;
+        row.ButtonText = string.IsNullOrWhiteSpace(buttonText) ? "Open" : buttonText!;
         row.Clicked = clicked;
+        if (HasView) BuildRow(row);
+        return row;
+    }
+
+    /// <summary>A row with a label and several buttons. Each button is sized to fit the row's available width.</summary>
+    public SettingsRowHandle? AddButtons(string? label, params (string text, Action? clicked)[] buttons) {
+        var row = NewRow(SettingsRowKind.Buttons, label);
+        if (row == null) return null;
+
+        if (buttons != null) {
+            foreach (var button in buttons) row.Buttons.Add(new SettingsButtonDefinition(button.text, button.clicked));
+        }
+        if (row.Buttons.Count == 0) row.Buttons.Add(new SettingsButtonDefinition("OK", null));
+        if (HasView) BuildRow(row);
+        return row;
+    }
+
+    /// <summary>
+    /// A "-" / value / "+" row. The value text provider is read when the row is attached and after each step; it is not
+    /// polled every frame.
+    /// </summary>
+    public SettingsRowHandle? AddStepper(string? label, Func<string>? valueText, Action<int>? step) {
+        var row = NewRow(SettingsRowKind.Stepper, label);
+        if (row == null) return null;
+        row.TextProvider = valueText;
+        row.Text = valueText == null ? string.Empty : SafeRead(valueText, _scope.Id);
+        row.IntChanged = step;
+        if (HasView) BuildRow(row);
+        return row;
+    }
+
+    /// <summary>A wrapped paragraph. Use <see cref="SettingsRowHandle.SetText"/> to change it later.</summary>
+    public SettingsRowHandle? AddInfo(string? text) {
+        var row = NewRow(SettingsRowKind.Info, null);
+        if (row == null) return null;
+        row.Text = text ?? string.Empty;
         if (HasView) BuildRow(row);
         return row;
     }
@@ -104,7 +137,7 @@ public sealed class SettingsTabHandle : NativeHandle {
             UiLog.OnceError("settings:disposed", "cannot add a settings row to a disposed tab");
             return null;
         }
-        var row = new SettingsRowHandle(this, kind, label);
+        var row = new SettingsRowHandle(_scope.Id, kind, label);
         _rows.Add(row);
         return row;
     }
@@ -209,7 +242,8 @@ public sealed class SettingsTabHandle : NativeHandle {
                 return;
             }
 
-            var view = new SettingsTabView(settings, tabArea, titleGo, pageGo, holder, entryPrefab, headerPrefab, tabTitle);
+            var rows = new SettingsRowHost(_scope, holder, entryPrefab, headerPrefab);
+            var view = new SettingsTabView(settings, tabArea, titleGo, pageGo, pageRt, rows, tabTitle);
             AppendTab(tabArea, tabTitle, pageRt);
             _view = view;
             foreach (var row in _rows) BuildRow(row);
@@ -233,7 +267,7 @@ public sealed class SettingsTabHandle : NativeHandle {
         if (tabView == null || !tabView.IsAlive || row == null) return;
 
         SettingsRowView? view;
-        try { view = BuildVisual(row, tabView); }
+        try { view = tabView.Rows.Build(row); }
         catch (Exception e) {
             UiGuard.Report("settings.row", e, _scope.Id);
             return;
@@ -242,188 +276,13 @@ public sealed class SettingsTabHandle : NativeHandle {
 
         try {
             row.Attach(view);
-            tabView.Views.Add(view);
+            tabView.Rows.Add(view);
         }
         catch (Exception e) {
             UiGuard.Report("settings.row.attach", e, _scope.Id);
             row.ResetView();
             view.Destroy();
         }
-    }
-
-    private SettingsRowView? BuildVisual(SettingsRowHandle row, SettingsTabView tabView) {
-        var runtime = _scope.Runtime;
-        var holder = tabView.Holder;
-
-        if (row.Kind == SettingsRowKind.Header) {
-            if (tabView.HeaderPrefab == null) {
-                UiLog.OnceError("settings:no-header", "settings header template is unavailable");
-                return null;
-            }
-
-            var go = UnityEngine.Object.Instantiate(tabView.HeaderPrefab.gameObject, Staging.Root);
-            try {
-                go.name = "DM Settings Header";
-                NativeButton.StripForeign(go);
-                DestroyLabel(go);
-                SetText(go, row.Label);
-                go.transform.SetParent(holder, false);
-                go.SetActive(true);
-                return new SettingsRowView { Go = go };
-            }
-            catch {
-                if (go != null) UnityEngine.Object.Destroy(go);
-                throw;
-            }
-        }
-
-        var entryGo = UnityEngine.Object.Instantiate(tabView.EntryPrefab.gameObject, Staging.Root);
-        try {
-            entryGo.name = "DM Settings Row";
-            NativeButton.StripForeign(entryGo);
-            var entry = entryGo.GetComponent<GameSettingEntry>();
-            var content = entry != null ? entry.contentHolder : null;
-            DestroyLabel(entryGo);
-            SetText(entryGo, row.Label);
-            AddLabelGap(entryGo);
-            if (content == null) {
-                UnityEngine.Object.Destroy(entryGo);
-                UiLog.OnceError("settings:no-content", "settings entry prefab has no content holder");
-                return null;
-            }
-
-            entryGo.transform.SetParent(holder, false);
-            entryGo.SetActive(true);
-
-            var view = new SettingsRowView { Go = entryGo };
-            switch (row.Kind) {
-                case SettingsRowKind.Toggle: {
-                    NativeToggle? toggle = null;
-                    toggle = SkinPolicy.TryNative("settings toggle", () =>
-                        NativeToggle.Create(runtime.Templates, content, row.BoolValue, value => {
-                            row.BoolValue = value;
-                            try { row.BoolChanged?.Invoke(value); }
-                            catch (Exception e) { UiGuard.Report("settings.toggle", e, _scope.Id); }
-                        }));
-                    if (toggle != null) {
-                        view.Toggle = toggle;
-                        var toggleGo = toggle.Go;
-                        var toggleRt = toggleGo != null ? toggleGo.GetComponent<RectTransform>() : null;
-                        SetControlSize(toggleRt, 28f, 28f, false);
-                        AlignControlLeft(toggleRt);
-                    }
-                    else {
-                        UiLog.OnceError("settings:no-toggle", "native toggle template is unavailable");
-                    }
-                    break;
-                }
-                case SettingsRowKind.Slider: {
-                    NativeSlider? slider = null;
-                    slider = SkinPolicy.TryNative("settings slider", () =>
-                        NativeSlider.Create(runtime.Templates, content, row.Min, row.Max, row.FloatValue));
-                    if (slider != null) {
-                        slider.SetFormat(row.Format);
-                        slider.SetChanged(value => {
-                            row.FloatValue = value;
-                            try { row.FloatChanged?.Invoke(value); }
-                            catch (Exception e) { UiGuard.Report("settings.slider", e, _scope.Id); }
-                        });
-                        view.Slider = slider;
-                        SetControlSize(slider.Rt, SliderWidth, slider.Height, false);
-                        AlignControlLeft(slider.Rt);
-                    }
-                    else {
-                        UiLog.OnceError("settings:no-slider", "native slider template is unavailable");
-                    }
-                    break;
-                }
-                case SettingsRowKind.Dropdown: {
-                    NativeDropdown? dropdown = null;
-                    dropdown = SkinPolicy.TryNative("settings dropdown", () =>
-                        NativeDropdown.Create(runtime.Templates, content, row.Options, row.Index));
-                    if (dropdown != null) {
-                        dropdown.SetChanged(index => {
-                            row.Index = index;
-                            try { row.IntChanged?.Invoke(index); }
-                            catch (Exception e) { UiGuard.Report("settings.dropdown", e, _scope.Id); }
-                        });
-                        view.Dropdown = dropdown;
-                        SetControlSize(dropdown.Rt, 220f, dropdown.Height, false);
-                        AlignControlLeft(dropdown.Rt);
-                    }
-                    else {
-                        UiLog.OnceError("settings:no-dropdown", "native dropdown template is unavailable");
-                    }
-                    break;
-                }
-                case SettingsRowKind.Button: {
-                    NativeButton? button = null;
-                    button = SkinPolicy.TryNative("settings button", () =>
-                        NativeButton.CreateLabel(runtime.Templates, content, "DM Settings Button", row.ButtonText, 16f,
-                            () => {
-                                try { row.Clicked?.Invoke(); }
-                                catch (Exception e) { UiGuard.Report("settings.button", e, _scope.Id); }
-                            }));
-                    if (button != null) {
-                        button.SetSize(110f, NativeButton.SlicedFit);
-                        AlignControlLeft(button.Rt);
-                        button.SetInteractable(row.Enabled);
-                        view.Button = button;
-                    }
-                    else {
-                        UiLog.OnceError("settings:no-button", "native button template is unavailable");
-                    }
-                    break;
-                }
-            }
-
-            return view;
-        }
-        catch {
-            if (entryGo != null) UnityEngine.Object.Destroy(entryGo);
-            throw;
-        }
-    }
-
-    private static void SetControlSize(RectTransform? rt, float width, float height, bool flexibleWidth) {
-        if (rt == null) return;
-        var layout = UiFactory.Layout(rt);
-        if (layout != null) {
-            layout.minWidth = layout.preferredWidth = width;
-            layout.minHeight = layout.preferredHeight = height;
-            layout.flexibleWidth = flexibleWidth ? 1f : 0f;
-            layout.flexibleHeight = 0f;
-        }
-        rt.sizeDelta = new Vector2(width, height);
-    }
-
-    /// <summary>
-    /// Adds a fixed gutter between the game's right-aligned label and the input column. The label shrinks by the same
-    /// amount that spacing grows, so the input column stays exactly where the native template put it.
-    /// </summary>
-    private static void AddLabelGap(GameObject entryGo) {
-        if (entryGo == null) return;
-
-        var row = entryGo.GetComponent<HorizontalLayoutGroup>();
-        var labelGo = entryGo.transform.Find("Label");
-        var label = labelGo != null ? labelGo.GetComponent<RectTransform>() : null;
-        if (row == null || label == null) return;
-
-        float oldSpacing = row.spacing;
-        float gap = Mathf.Max(LabelInputGap, oldSpacing);
-        float shrink = gap - oldSpacing;
-        if (shrink <= 0f || label.sizeDelta.x <= shrink + 80f) return;
-
-        label.sizeDelta = new Vector2(label.sizeDelta.x - shrink, label.sizeDelta.y);
-        row.spacing = gap;
-    }
-
-    /// <summary>All settings inputs share one left edge, regardless of their donor prefab's anchors.</summary>
-    private static void AlignControlLeft(RectTransform? rt) {
-        if (rt == null) return;
-        rt.anchorMin = rt.anchorMax = new Vector2(0f, 0.5f);
-        rt.pivot = new Vector2(0f, 0.5f);
-        rt.anchoredPosition = Vector2.zero;
     }
 
     private static Transform? FindTitleTemplate(Transform titlesRoot) {
@@ -572,24 +431,21 @@ public sealed class SettingsTabHandle : NativeHandle {
         private readonly GameTabTitle? _title;
 
         public SettingsTabView(GameSettings settings, GameTabArea tabArea, GameObject titleGo, GameObject pageGo,
-                               RectTransform holder, GameSettingEntry entryPrefab, GameLabel? headerPrefab,
-                               GameTabTitle? title) {
+                               RectTransform pageRect, SettingsRowHost rows, GameTabTitle? title) {
             Settings = settings;
             _tabArea = tabArea;
             _titleGo = titleGo;
             _pageGo = pageGo;
             _title = title;
-            Holder = holder;
-            EntryPrefab = entryPrefab;
-            HeaderPrefab = headerPrefab;
+            PageRect = pageRect;
+            Rows = rows;
         }
 
         public GameSettings Settings { get; }
-        public RectTransform Holder { get; }
-        public GameSettingEntry EntryPrefab { get; }
-        public GameLabel? HeaderPrefab { get; }
-        public List<SettingsRowView> Views { get; } = new();
-        public bool IsAlive => Settings != null && _tabArea != null && _titleGo != null && _pageGo != null;
+        public RectTransform PageRect { get; }
+        public SettingsRowHost Rows { get; }
+        public bool IsAlive => Settings != null && _tabArea != null && _titleGo != null && _pageGo != null &&
+                               Rows.IsAlive;
 
         public void Select() {
             if (!IsAlive || _tabArea.tabs == null) return;
@@ -608,11 +464,7 @@ public sealed class SettingsTabHandle : NativeHandle {
         }
 
         public void Dispose() {
-            foreach (var view in Views) {
-                try { view.Destroy(); }
-                catch (Exception e) { UiLog.Error("settings row cleanup failed: " + e.Message); }
-            }
-            Views.Clear();
+            Rows.Dispose();
 
             try { RemoveTab(_tabArea, _title, _titleGo, _pageGo); }
             catch (Exception e) { UiLog.Error("settings tab view cleanup failed: " + e.Message); }
@@ -624,7 +476,7 @@ public sealed class SettingsTabHandle : NativeHandle {
 
         try {
             _ = 0f.ToString(format, CultureInfo.InvariantCulture);
-            return format;
+            return format!;
         }
         catch {
             UiLog.Once("settings:format", $"invalid settings number format '{format}'; using 0.##");
@@ -639,5 +491,14 @@ public sealed class SettingsTabHandle : NativeHandle {
         }
         if (values.Count == 0) values.Add(string.Empty);
         return values;
+    }
+
+    private static string SafeRead(Func<string>? value, string ownerId) {
+        if (value == null) return string.Empty;
+        try { return value() ?? string.Empty; }
+        catch (Exception e) {
+            UiLog.Once("settings:text:" + ownerId, "settings value text: " + e.Message);
+            return string.Empty;
+        }
     }
 }

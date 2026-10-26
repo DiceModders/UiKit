@@ -21,7 +21,6 @@ internal sealed class UiKitRuntime {
     private UnityAction<Scene, LoadSceneMode>? _sceneLoaded;
     private UnityAction<Scene>? _sceneUnloaded;
     private DemoController? _demo;
-    private GameObject? _pumpObject;
     private int _windowIndex;
     private int _scopeIndex;
     private bool _disposed;
@@ -39,8 +38,10 @@ internal sealed class UiKitRuntime {
         NativeUi = new NativeUiHost();
 
         RegisterComponents();
+        LayoutOnce.Begin();
+        LayoutEvents.Activate();
+        LayoutEvents.CanvasChanged += OnCanvasChanged;
         NativeHooks.Install(this);
-        SpawnPump();
 
         try {
             Action<Scene, LoadSceneMode> loaded = OnSceneLoaded;
@@ -63,6 +64,11 @@ internal sealed class UiKitRuntime {
 
             if (_demo == null) UiLog.Error("the built-in demo could not be created");
         }
+
+        // The lifecycle hooks normally announce the top bar; this is the late-plugin fallback and also performs the
+        // second consecutive readiness check across one layout pass.
+        UiGuard.Run("startup.ready", TryMarkUiReady, "runtime");
+        RequestReadyProbe();
 
         UiLog.Info("UI kit runtime created");
     }
@@ -174,6 +180,12 @@ internal sealed class UiKitRuntime {
         MarkUiReady();
     }
 
+    /// <summary>Schedules one more readiness check after layout; it never repeats by itself.</summary>
+    internal void RequestReadyProbe() {
+        if (_disposed || _uiReady) return;
+        LayoutOnce.Request(TryMarkUiReady);
+    }
+
     private bool HasUsableGameUi() {
         var bar = UiGuard.Func("ready.bar", GameUi.FindActiveBar, "runtime");
         if (bar == null) return false;
@@ -219,7 +231,10 @@ internal sealed class UiKitRuntime {
         Register<AutoHeightText>();
         Register<WidthWatcher>();
         Register<ScrollPin>();
-        Register<NativeRetryPump>();
+        Register<CanvasLayoutWatcher>();
+        Register<DelegateLifetime>();
+        Register<ScoreboardRowLifetime>();
+        Register<SettingsScreenLifetime>();
     }
 
     private static void Register<T>() where T : class {
@@ -227,32 +242,10 @@ internal sealed class UiKitRuntime {
         catch (Exception e) { UiLog.Warn($"could not register {typeof(T).Name}: {e.Message}"); }
     }
 
-    private void SpawnPump() {
-        GameObject? go = null;
-        try {
-            go = new GameObject("DiceModders UiKit");
-            go.hideFlags = HideFlags.HideAndDontSave;
-            UnityEngine.Object.DontDestroyOnLoad(go);
-            var pump = go.AddComponent<NativeRetryPump>();
-            if (pump == null) throw new InvalidOperationException("the retry component was not created");
-            pump.Init(this);
-            _pumpObject = go;
-        }
-        catch (Exception e) {
-            if (go != null) {
-                try { UnityEngine.Object.Destroy(go); }
-                catch { /* best effort during teardown */ }
-            }
-            UiLog.Warn("could not create the native retry pump: " + e.Message);
-        }
-    }
-
-    private void DestroyPump() {
-        var go = _pumpObject;
-        _pumpObject = null;
-        if (go == null) return;
-        try { UnityEngine.Object.Destroy(go); }
-        catch (Exception e) { UiLog.Warn("could not destroy the native retry pump: " + e.Message); }
+    private void OnCanvasChanged() {
+        if (_disposed) return;
+        UiGuard.Run("layout.windows", UiWindow.FitAllToScreen, "runtime");
+        UiGuard.Run("layout.native", NativeUi.OnCanvasLayoutChanged, "runtime");
     }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode) {
@@ -268,6 +261,7 @@ internal sealed class UiKitRuntime {
         UiGuard.Run("scene.native", NativeUi.Refresh, "runtime");
         UiGuard.Run("scene.demo", () => _demo?.OnSceneLoaded(), "runtime");
         UiGuard.Run("scene.ready", TryMarkUiReady, "runtime");
+        RequestReadyProbe();
     }
 
     private void OnSceneUnloaded(Scene scene) {
@@ -291,8 +285,13 @@ internal sealed class UiKitRuntime {
         UiGuard.Run("runtime.unsubscribe", () => {
             if (_sceneLoaded != null) SceneManager.sceneLoaded -= _sceneLoaded;
             if (_sceneUnloaded != null) SceneManager.sceneUnloaded -= _sceneUnloaded;
+            LayoutEvents.CanvasChanged -= OnCanvasChanged;
             _sceneLoaded = null;
             _sceneUnloaded = null;
+        }, "runtime");
+        UiGuard.Run("runtime.layout", () => {
+            LayoutOnce.Clear();
+            LayoutEvents.Clear();
         }, "runtime");
 
         var demo = _demo;
@@ -300,7 +299,6 @@ internal sealed class UiKitRuntime {
         if (demo != null) UiGuard.Run("demo.dispose", demo.Dispose, "runtime");
 
         UiGuard.Run("native.hooks", NativeHooks.Uninstall, "runtime");
-        UiGuard.Run("native.pump", DestroyPump, "runtime");
         UiGuard.Run("native.dispose", NativeUi.Dispose, "runtime");
 
         _readyCallbacks.Clear();
@@ -310,6 +308,7 @@ internal sealed class UiKitRuntime {
             UiGuard.Run("scope.dispose", scopes[i].Dispose, scopes[i].Id);
         }
 
+        UiGuard.Run("runtime.pointer", PointerTracker.Clear, "runtime");
         UiGuard.Run("runtime.templates", Templates.Invalidate, "runtime");
         UiGuard.Run("runtime.assets", Assets.Invalidate, "runtime");
         UiGuard.Run("runtime.delegates", Il2CppDelegates.Clear, "runtime");

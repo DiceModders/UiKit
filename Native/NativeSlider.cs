@@ -50,6 +50,9 @@ internal sealed class NativeSlider {
         }
         NativeButton.RepairBaseButtons(go);
 
+        var group = go.GetComponent<HorizontalOrVerticalLayoutGroup>();
+        if (group != null) group.enabled = false;
+
         var rt = go.GetComponent<RectTransform>();
         float height = rt != null ? rt.rect.height : 0f;
         if (height <= 1f && rt != null) height = rt.sizeDelta.y;
@@ -95,6 +98,17 @@ internal sealed class NativeSlider {
 
     public void SetFormat(string? format) {
         _format = string.IsNullOrEmpty(format) ? "0.##" : format;
+        UpdateLabel();
+    }
+
+    public void SetWholeNumbers(bool on) {
+        if (Slider == null) return;
+        Slider.wholeNumbers = on;
+        if (on) {
+            Slider.minValue = Mathf.Round(Slider.minValue);
+            Slider.maxValue = Mathf.Round(Slider.maxValue);
+            Slider.SetValueWithoutNotify(Mathf.Round(Slider.value));
+        }
         UpdateLabel();
     }
 

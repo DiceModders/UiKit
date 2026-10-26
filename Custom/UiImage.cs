@@ -5,7 +5,7 @@ using UIRawImage = UnityEngine.UI.RawImage;
 
 namespace DiceModders.UiKit.Custom;
 
-/// <summary>A picture on a window, useful for maps and other custom drawings. Pointer and wheel events arrive through Unity's event interfaces.</summary>
+/// <summary>A picture on a window, useful for maps and other custom drawings. Pointer events arrive through Unity's event interfaces; the library's Input System tracker runs only while pointer-aware widgets exist.</summary>
 public sealed class UiImage : UiElement {
     private readonly UIRawImage _image;
     private readonly UIAspect _fitter;
@@ -57,6 +57,21 @@ public sealed class UiImage : UiElement {
     }
 
     public Texture? Texture => _image != null ? _image.texture : null;
+
+    /// <summary>Size of the picture in canvas units right now.</summary>
+    public Vector2 Size => _image != null ? _image.rectTransform.rect.size : Vector2.zero;
+
+    public UiImage UvRect(Rect rect) {
+        if (!IsAlive || _image == null) return this;
+        UiGuard.Run("image.uv", () => _image.uvRect = rect);
+        return this;
+    }
+
+    public UiImage Tint(Color color) {
+        if (!IsAlive || _image == null) return this;
+        UiGuard.Run("image.tint", () => _image.color = color);
+        return this;
+    }
 
     public UiImage SetTexture(Texture? texture) {
         if (!IsAlive || _image == null) return this;

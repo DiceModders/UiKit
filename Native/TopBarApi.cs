@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace DiceModders.UiKit.Native;
@@ -10,6 +11,7 @@ namespace DiceModders.UiKit.Native;
 public sealed class TopBarApi {
     private readonly UiScope _scope;
     private readonly NativeUiHost _host;
+    private readonly Dictionary<string, TopBarButtonHandle> _buttons = new();
     private int _index;
 
     internal TopBarApi(UiScope scope) {
@@ -29,30 +31,45 @@ public sealed class TopBarApi {
         }
 
         string id = string.IsNullOrWhiteSpace(spec.Id) ? "topbar-" + (++_index) : spec.Id.Trim();
+        if (_buttons.TryGetValue(id, out var existing) && !existing.IsDisposed) {
+            UiLog.OnceError("topbar:duplicate:" + id, $"top-bar button '{id}' already exists in this scope");
+            return existing;
+        }
+        _buttons.Remove(id);
+
         TopBarButtonHandle? handle = null;
         try {
             handle = new TopBarButtonHandle(_scope, _host, id, spec.IconName, spec.Icon, spec.Tooltip, spec.OnClick,
-                spec.InitiallyVisible);
+                spec.InitiallyVisible, spec.InitiallyInteractable, spec.Order, _host.NextTopBarSequence(),
+                value => _buttons.Remove(value.Id));
             if (!SkinPolicy.AllowNative(_scope.Runtime)) {
                 handle.MarkUnsupported("TemplatePolicy.ManagedOnly disables native top-bar buttons");
             }
+            _buttons[id] = handle;
             return _host.Register(handle);
         }
         catch (Exception e) {
             UiGuard.Report("topbar.add", e, _scope.Id);
+            _buttons.Remove(id);
             UiGuard.Run("topbar.rollback", () => handle?.Dispose(), _scope.Id);
             return null;
         }
+    }
+
+    /// <summary>Returns a live top-bar button registered in this scope, or <c>null</c>.</summary>
+    public TopBarButtonHandle? Get(string? id) {
+        if (string.IsNullOrWhiteSpace(id)) return null;
+        return _buttons.TryGetValue(id.Trim(), out var button) && !button.IsDisposed ? button : null;
     }
 
     /// <summary>
     /// Adds an icon from the shared theme. The icon is resolved lazily, so this is safe before the game's assets exist.
     /// Returns <c>null</c> only when the scope is gone or the description cannot be built.
     /// </summary>
-    public TopBarButtonHandle? AddIconButton(string? iconName, string? tooltip = null, Action? onClick = null)
-        => Add(new TopBarButtonSpec { IconName = iconName, Tooltip = tooltip, OnClick = onClick });
+    public TopBarButtonHandle? AddIconButton(string? iconName, string? tooltip = null, Action? onClick = null, int order = 0)
+        => Add(new TopBarButtonSpec { IconName = iconName, Tooltip = tooltip, OnClick = onClick, Order = order });
 
     /// <summary>Adds a caller-supplied sprite to the game's top-right bar.</summary>
-    public TopBarButtonHandle? AddIconButton(Sprite? icon, string? tooltip = null, Action? onClick = null)
-        => Add(new TopBarButtonSpec { Icon = icon, Tooltip = tooltip, OnClick = onClick });
+    public TopBarButtonHandle? AddIconButton(Sprite? icon, string? tooltip = null, Action? onClick = null, int order = 0)
+        => Add(new TopBarButtonSpec { Icon = icon, Tooltip = tooltip, OnClick = onClick, Order = order });
 }

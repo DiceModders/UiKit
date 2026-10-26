@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Il2CppInterop.Runtime;
+using UnityEngine;
 using UnityEngine.Events;
 
 namespace DiceModders.UiKit.Native;
@@ -15,11 +16,32 @@ internal static class Il2CppDelegates {
     public static void Hold(UnityEngine.Object? owner, object? keep) {
         if (owner == null || keep == null) return;
         Alive.Add((owner, keep));
+
+        // Unity objects are removed by Unity, not by the GC. Release the holder at the same moment instead of
+        // waiting for a periodic sweep.
+        if (owner is GameObject go) {
+            try {
+                if (go.GetComponent<DelegateLifetime>() == null) go.AddComponent<DelegateLifetime>();
+            }
+            catch (Exception e) {
+                UiLog.Once("delegates:lifetime-add", "could not attach delegate lifetime cleanup: " + e.Message);
+            }
+        }
     }
 
-    /// <summary>Drops references whose Unity owner was destroyed. Called on scene changes and runtime disposal.</summary>
+    /// <summary>Drops every reference whose Unity owner was destroyed or is the given object.</summary>
     public static void Sweep() {
         if (Alive.Count > 0) Alive.RemoveAll(entry => entry.Owner == null);
+    }
+
+    public static void RemoveOwner(GameObject? owner) {
+        if (owner == null) {
+            Sweep();
+            return;
+        }
+
+        var pointer = owner.Pointer;
+        Alive.RemoveAll(entry => entry.Owner == null || entry.Owner.Pointer == pointer);
     }
 
     public static void Clear() => Alive.Clear();

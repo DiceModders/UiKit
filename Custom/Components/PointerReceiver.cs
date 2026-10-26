@@ -17,24 +17,33 @@ internal sealed class PointerReceiver : MonoBehaviour {
 
     private EventTrigger? _trigger;
     private readonly List<UnityAction<BaseEventData>> _keep = new();
+    private PointerTracker.Entry? _entry;
+    private bool _hover;
+    private Vector2 _lastLocal;
+    private bool _hasLastLocal;
 
     public void Bind(RectTransform? area) {
         Area = area;
-        if (_trigger != null) return;
+        if (_trigger == null) {
+            var trigger = gameObject.GetComponent<EventTrigger>() ?? gameObject.AddComponent<EventTrigger>();
+            _trigger = trigger;
+            trigger.triggers.Clear();
 
-        var trigger = gameObject.GetComponent<EventTrigger>() ?? gameObject.AddComponent<EventTrigger>();
-        _trigger = trigger;
-        trigger.triggers.Clear();
+            EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerEnter, EventRelay.ToEvent(OnEnter));
+            EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerExit, EventRelay.ToEvent(OnExit));
+            EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerDown, EventRelay.ToEvent(OnDown));
+            EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerUp, EventRelay.ToEvent(OnUp));
+            EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerClick, EventRelay.ToEvent(OnClick));
+            EventTriggerBinder.Add(trigger, _keep, EventTriggerType.BeginDrag, EventRelay.ToEvent(OnBeginDrag));
+            EventTriggerBinder.Add(trigger, _keep, EventTriggerType.Drag, EventRelay.ToEvent(OnDrag));
+            EventTriggerBinder.Add(trigger, _keep, EventTriggerType.EndDrag, EventRelay.ToEvent(OnEndDrag));
+        }
 
-        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerEnter, EventRelay.ToEvent(OnEnter));
-        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerExit, EventRelay.ToEvent(OnExit));
-        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerDown, EventRelay.ToEvent(OnDown));
-        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerUp, EventRelay.ToEvent(OnUp));
-        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.PointerClick, EventRelay.ToEvent(OnClick));
-        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.BeginDrag, EventRelay.ToEvent(OnBeginDrag));
-        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.Drag, EventRelay.ToEvent(OnDrag));
-        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.EndDrag, EventRelay.ToEvent(OnEndDrag));
-        EventTriggerBinder.Add(trigger, _keep, EventTriggerType.Scroll, EventRelay.ToEvent(OnScrollEvent));
+        _entry ??= PointerTracker.Add(this,
+            position => _hover && Area != null && Area.gameObject.activeInHierarchy &&
+                        RectTransformUtility.RectangleContainsScreenPoint(Area, position, PointerTracker.CameraFor(Area)),
+            OnWheel,
+            OnMove);
     }
 
     private static Camera? CameraFor(RectTransform? rect) {
@@ -69,8 +78,17 @@ internal sealed class PointerReceiver : MonoBehaviour {
         catch (Exception e) { UiLog.Error("image pointer handler: " + e); }
     }
 
-    private void OnEnter(BaseEventData? data) => Raise((int)UiPointerKind.Enter, data?.TryCast<PointerEventData>(), -1);
-    private void OnExit(BaseEventData? data) => Raise((int)UiPointerKind.Exit, data?.TryCast<PointerEventData>(), -1);
+    private void OnEnter(BaseEventData? data) {
+        _hover = true;
+        _hasLastLocal = false;
+        Raise((int)UiPointerKind.Enter, data?.TryCast<PointerEventData>(), -1);
+    }
+
+    private void OnExit(BaseEventData? data) {
+        _hover = false;
+        _hasLastLocal = false;
+        Raise((int)UiPointerKind.Exit, data?.TryCast<PointerEventData>(), -1);
+    }
 
     private void OnDown(BaseEventData? data) {
         var pointer = data?.TryCast<PointerEventData>();
@@ -102,17 +120,40 @@ internal sealed class PointerReceiver : MonoBehaviour {
         Raise((int)UiPointerKind.Up, pointer, pointer != null ? (int)pointer.button : -1);
     }
 
-    private void OnScrollEvent(BaseEventData? data) {
+    private bool OnWheel(float notches) {
         var handler = PointerRegistry.Scroll(this);
-        if (handler == null) return;
-        var pointer = data?.TryCast<PointerEventData>();
-        if (pointer == null) return;
-        try { handler(pointer.scrollDelta.y); }
+        if (handler == null) return false;
+        try { handler(notches); }
         catch (Exception e) { UiLog.Error("image scroll handler: " + e); }
+        return true;
+    }
+
+    private void OnMove(Vector2 screen) {
+        var handler = PointerRegistry.Pointer(this);
+        var area = Area;
+        if (handler == null || area == null) return;
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(area, screen, PointerTracker.CameraFor(area), out var local))
+            return;
+
+        var rect = area.rect;
+        var position = local - rect.min;
+        if (_hasLastLocal && position == _lastLocal) return;
+
+        var uv = new Vector2(
+            rect.width > 0.001f ? position.x / rect.width : 0f,
+            rect.height > 0.001f ? position.y / rect.height : 0f);
+        var delta = _hasLastLocal ? position - _lastLocal : Vector2.zero;
+        _lastLocal = position;
+        _hasLastLocal = true;
+
+        try { handler(new UiPointerEvent(UiPointerKind.Move, -1, uv, position, delta)); }
+        catch (Exception e) { UiLog.Error("image pointer handler: " + e); }
     }
 
     private void OnDestroy() {
         PointerRegistry.Clear(this);
+        PointerTracker.Remove(_entry);
+        _entry = null;
         _keep.Clear();
     }
 }

@@ -34,16 +34,16 @@ public sealed class UiButton : UiElement {
     }
 
     internal static UiButton? Create(UiContainer parent, string? text, Action? onClick, string? iconName, bool fixedSize,
-                                   string? tooltip = null) {
+                                   string? tooltip = null, Sprite? icon = null) {
         var runtime = parent.Runtime;
         var theme = parent.Theme;
         NativeButton? native = null;
 
         try {
             if (SkinPolicy.AllowNative(runtime)) {
-                var sprite = string.IsNullOrEmpty(iconName) ? null : theme.Icon(iconName);
+                var sprite = icon ?? (string.IsNullOrEmpty(iconName) ? null : theme.Icon(iconName));
 
-                if (string.IsNullOrEmpty(iconName)) {
+                if (string.IsNullOrEmpty(iconName) && sprite == null) {
                     native = SkinPolicy.TryNative("button", () =>
                         NativeButton.CreateLabel(runtime.Templates, parent.Root, "DM Button", text, 16f, onClick));
                 }
@@ -70,7 +70,7 @@ public sealed class UiButton : UiElement {
                     return null;
             }
 
-            return CreateManaged(parent, text, onClick, iconName, fixedSize);
+            return CreateManaged(parent, text, onClick, iconName, fixedSize, icon);
         }
         catch (Exception e) {
             UiGuard.Report("button.create", e);
@@ -114,7 +114,7 @@ public sealed class UiButton : UiElement {
     }
 
     private static UiButton? CreateManaged(UiContainer parent, string? text, Action? onClick, string? iconName,
-                                         bool fixedSize) {
+                                         bool fixedSize, Sprite? iconSprite = null) {
         var theme = parent.Theme;
         var rect = UiFactory.NewRect("DM Button", parent.Root);
 
@@ -161,8 +161,8 @@ public sealed class UiButton : UiElement {
             label.rectTransform.offsetMax = new Vector2(-8f, 0f);
 
             UIImage? icon = null;
-            if (!string.IsNullOrEmpty(iconName)) {
-                var sprite = theme.Icon(iconName);
+            var sprite = iconSprite ?? (string.IsNullOrEmpty(iconName) ? null : theme.Icon(iconName));
+            if (sprite != null || !string.IsNullOrEmpty(iconName)) {
                 if (sprite != null) {
                     icon = UiFactory.AddImage(rect, "DM Icon", sprite, Color.white, false);
                     icon.type = UIImage.Type.Simple;
@@ -218,10 +218,13 @@ public sealed class UiButton : UiElement {
         return this;
     }
 
-    public UiButton Icon(string? spriteName) {
-        if (!IsAlive) return this;
-        var sprite = _theme.Icon(spriteName);
-        if (sprite == null) return this;
+    public UiButton Icon(string? spriteName) => SetIcon(_theme.Icon(spriteName));
+
+    /// <summary>Uses a caller-supplied sprite, for example a texture created at runtime.</summary>
+    public UiButton Icon(Sprite? sprite) => SetIcon(sprite);
+
+    private UiButton SetIcon(Sprite? sprite) {
+        if (!IsAlive || sprite == null) return this;
 
         if (_native != null) {
             UiGuard.Run("button.icon", () => _native.SetIcon(sprite));

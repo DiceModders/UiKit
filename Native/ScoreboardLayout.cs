@@ -8,6 +8,9 @@ internal static class ScoreboardLayout {
     private const float SideMargin = 260f;
     private static RectTransform? _board;
 
+    /// <summary>Forgets the cached board after the scoreboard is destroyed or a scene changes.</summary>
+    public static void Reset() => _board = null;
+
     /// <summary>
     /// The game's row ends with an empty cell reserved for the send-resources button. Extra columns take that place
     /// while the button is hidden, keeping the board at its original width.

@@ -21,6 +21,9 @@ internal sealed class AutoHeightText : MonoBehaviour {
 
     public bool Enabled { get; private set; }
 
+    /// <summary>Called after the measured height changed, so owners can re-run post-layout chrome work.</summary>
+    internal Action? AfterMeasure { get; set; }
+
     public void Bind(TMP_Text? text, LayoutElement? layout) {
         _text = text;
         _layout = layout;
@@ -47,6 +50,9 @@ internal sealed class AutoHeightText : MonoBehaviour {
     public void MeasureNow() {
         if (Enabled) Measure();
     }
+
+    /// <summary>Remembers to measure once after the current text change has been laid out.</summary>
+    public void Refresh() => MeasureSoon();
 
     private void MeasureSoon() {
         if (!Enabled || _scheduled || _text == null) return;
@@ -91,6 +97,8 @@ internal sealed class AutoHeightText : MonoBehaviour {
             var rect = parent.TryCast<RectTransform>();
             if (rect != null) LayoutRebuilder.MarkLayoutForRebuild(rect);
         }
+
+        UiGuard.Callback("auto-height", AfterMeasure);
     }
 
     private void OnDisable() {

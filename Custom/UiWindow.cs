@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -19,6 +20,8 @@ public sealed class UiWindow : UiElement {
     private const float TitleHeight = 32f;
     private const float TitleGap = 6f;
 
+    private static readonly List<UiWindow> LiveWindows = new();
+
     private readonly UiScope _scope;
     private readonly UiContainer _body = null!;
     private readonly UIImage _background = null!;
@@ -28,6 +31,7 @@ public sealed class UiWindow : UiElement {
     private RectTransform? _titleStrip;
     private TextMeshProUGUI? _titleText;
     private UiButton? _closeButton;
+    private UiButton? _fullscreenButton;
     private WindowDragHandler? _drag;
     private Action? _onClose;
 
@@ -49,6 +53,7 @@ public sealed class UiWindow : UiElement {
     private Vector2 _normalPosition;
     private Vector2 _normalSize;
     private bool _hasNormal;
+    private Vector2 _fittedTo;
 
     internal UiWindow(UiScope scope) : base(CreateRoot(scope)) {
         _scope = scope;
@@ -70,6 +75,7 @@ public sealed class UiWindow : UiElement {
             int index = scope.Runtime.NextWindowIndex();
             _position = new Vector2(60f + index * 28f, 60f + index * 28f);
             ApplyNormalLayout();
+            LiveWindows.Add(this);
         }
         catch (Exception e) {
             UiGuard.Report("window.construct", e, scope.Id);
@@ -206,6 +212,8 @@ public sealed class UiWindow : UiElement {
                 Root.pivot = pivot;
                 Root.anchoredPosition = position;
                 Root.sizeDelta = size;
+                _fittedTo = default;
+                FitToScreen();
             }
 
             ApplySorting();
@@ -235,6 +243,26 @@ public sealed class UiWindow : UiElement {
     public UiWindow Fullscreenable(bool on = true) {
         if (!IsAlive) return this;
         _fullscreenable = on;
+        return this;
+    }
+
+    /// <summary>Adds a "Full screen / Window" toggle button to the title bar and makes the window fullscreenable.</summary>
+    public UiWindow FullscreenButton(bool on = true) {
+        if (!IsAlive) return this;
+
+        if (!on) {
+            _fullscreenButton?.Dispose();
+            _fullscreenButton = null;
+            return this;
+        }
+
+        if (_fullscreenButton != null && _fullscreenButton.IsAlive) return this;
+        _fullscreenable = true;
+        EnsureTitle();
+        if (_titleButtons == null) return this;
+
+        _fullscreenButton = _titleButtons.Button(_fullscreen ? "Window" : "Full screen", HandleDoubleClick);
+        UpdateFullscreenButton();
         return this;
     }
 
@@ -308,7 +336,9 @@ public sealed class UiWindow : UiElement {
         UiGuard.Run("window.fullscreen", () => {
             SaveNormal();
             _fullscreen = true;
+            _fittedTo = default;
             ApplyFullscreenLayout();
+            UpdateFullscreenButton();
             _drag?.SetCanDrag(false);
             BringToFront();
         }, _scope.Id);
@@ -319,6 +349,7 @@ public sealed class UiWindow : UiElement {
 
         UiGuard.Run("window.restore", () => {
             _fullscreen = false;
+            _fittedTo = default;
 
             if (_hasNormal) {
                 Root.anchorMin = _normalAnchorMin;
@@ -331,6 +362,9 @@ public sealed class UiWindow : UiElement {
                 ApplyNormalLayout();
             }
 
+            _fittedTo = default;
+            FitToScreen();
+            UpdateFullscreenButton();
             _drag?.SetCanDrag(_draggable);
         }, _scope.Id);
     }
@@ -353,10 +387,12 @@ public sealed class UiWindow : UiElement {
         }
 
         _closeButton = null;
+        _fullscreenButton = null;
         _titleButtons = null;
         _titleStrip = null;
         _titleText = null;
         _onClose = null;
+        LiveWindows.Remove(this);
 
         UiGuard.Run("window.untrack", () => _scope.RemoveOwned(this), _scope.Id);
         base.Dispose();
@@ -467,13 +503,54 @@ public sealed class UiWindow : UiElement {
         UiGuard.Run("window.body-top", () => _body.Root.offsetMax = new Vector2(-Padding, -top), _scope.Id);
     }
 
+    /// <summary>Keeps every live normal window inside the current canvas after a resolution or aspect-ratio change.</summary>
+    internal static void FitAllToScreen() {
+        if (LiveWindows.Count == 0) return;
+        for (int i = LiveWindows.Count - 1; i >= 0; i--) {
+            var window = LiveWindows[i];
+            if (window == null || !window.IsAlive) {
+                LiveWindows.RemoveAt(i);
+                continue;
+            }
+            window.FitToScreen();
+        }
+    }
+
+    private void FitToScreen() {
+        if (!IsAlive || _fullscreen || Root == null) return;
+
+        var parent = Root.parent != null ? Root.parent.TryCast<RectTransform>() : null;
+        if (parent == null) return;
+        var size = parent.rect.size;
+        if (size.x < 1f || size.y < 1f) return;
+        if (_fittedTo == size) return;
+
+        var windowSize = Root.sizeDelta;
+        windowSize.x = Mathf.Min(windowSize.x, size.x);
+        windowSize.y = Mathf.Min(windowSize.y, size.y);
+        var position = Root.anchoredPosition;
+        position.x = Mathf.Clamp(position.x, 0f, Mathf.Max(0f, size.x - windowSize.x));
+        position.y = Mathf.Clamp(position.y, -Mathf.Max(0f, size.y - windowSize.y), 0f);
+
+        Root.sizeDelta = windowSize;
+        Root.anchoredPosition = position;
+        _fittedTo = size;
+    }
+
+    private void UpdateFullscreenButton() {
+        if (_fullscreenButton == null || !_fullscreenButton.IsAlive) return;
+        _fullscreenButton.Text(_fullscreen ? "Window" : "Full screen");
+    }
+
     private void ApplyNormalLayout() {
         if (!IsAlive || _fullscreen || Root == null) return;
 
+        _fittedTo = default;
         Root.anchorMin = Root.anchorMax = new Vector2(0f, 1f);
         Root.pivot = new Vector2(0f, 1f);
         Root.anchoredPosition = new Vector2(_position.x, -_position.y);
         Root.sizeDelta = new Vector2(_width, _height);
+        FitToScreen();
     }
 
     private void ApplyFullscreenLayout() {

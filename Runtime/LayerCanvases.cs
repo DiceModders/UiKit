@@ -132,6 +132,7 @@ internal sealed class LayerCanvases : IDisposable {
             CopyScaler(hud, scaler);
 
             go.AddComponent<GraphicRaycaster>();
+            LayoutEvents.Watch(rect);
             return canvas;
         }
         catch {

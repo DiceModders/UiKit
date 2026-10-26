@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using GameRules = DiceKingdoms.Meta.Rules;
 using GameScoreboardRow = DiceKingdoms.Interface.ScoreboardRow;
+using GameSettingSet = DiceKingdoms.Meta.SettingSetInterface;
 using GameSettings = DiceKingdoms.Meta.SettingSetsInterface;
 using GameTechTree = DiceKingdoms.Game.TechTree;
 
@@ -18,16 +19,34 @@ internal sealed class NativeUiHost {
     private GameSettings? _settingsScreen;
     private GameRules? _rulesScreen;
     private bool _disposed;
+    private int _topBarSequence;
+    private int _settingsBlockSequence;
 
     internal bool HasRegistrations => _bindings.Count > 0;
 
-    internal bool HasPending {
-        get {
-            for (int i = 0; i < _bindings.Count; i++) {
-                var state = _bindings[i].State;
-                if (state is NativeState.Pending or NativeState.Failed or NativeState.Detached) return true;
+    internal int NextTopBarSequence() => ++_topBarSequence;
+    internal int NextSettingsBlockSequence() => ++_settingsBlockSequence;
+
+    /// <summary>Puts every attached mod top-bar button before the game's own buttons, ordered by spec order then sequence.</summary>
+    internal void ReorderTopBar(Transform? bar) {
+        if (bar == null) return;
+
+        var handles = new List<TopBarButtonHandle>();
+        var bindings = _bindings.ToArray();
+        for (int i = 0; i < bindings.Length; i++) {
+            if (bindings[i] is TopBarButtonHandle button && !button.IsDisposed && button.IsInBar(bar)) {
+                handles.Add(button);
             }
-            return false;
+        }
+
+        handles.Sort((left, right) => {
+            int order = left.Order.CompareTo(right.Order);
+            return order != 0 ? order : left.Sequence.CompareTo(right.Sequence);
+        });
+
+        for (int i = 0; i < handles.Count; i++) {
+            var handle = handles[i];
+            UiGuard.Run("topbar.order", () => handle.MoveToIndex(i), handle.OwnerId);
         }
     }
 
@@ -39,6 +58,28 @@ internal sealed class NativeUiHost {
             }
             return false;
         }
+    }
+
+    internal bool HasSettingsBlocks {
+        get {
+            for (int i = 0; i < _bindings.Count; i++) {
+                if (_bindings[i] is SettingsBlockHandle block &&
+                    !block.IsDisposed && block.State != NativeState.Unsupported) return true;
+            }
+            return false;
+        }
+    }
+
+    internal bool HasAttachedSettingsRows(SettingsPage page, SettingsBlockHandle? except = null) {
+        var bindings = _bindings.ToArray();
+        for (int i = 0; i < bindings.Length; i++) {
+            if (ReferenceEquals(bindings[i], except)) continue;
+            if (bindings[i] is SettingsBlockHandle block && !block.IsDisposed &&
+                block.State != NativeState.Unsupported && block.Page == page && block.HasAttachedRows) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>Registers a stable handle and makes the first attach attempt immediately.</summary>
@@ -66,11 +107,13 @@ internal sealed class NativeUiHost {
     internal void Refresh() {
         if (_disposed) return;
 
+        UiGuard.Run("scoreboard.reset", ScoreboardLayout.Reset, "runtime");
         _settingsScreen = UiGuard.Func("native.find-settings", GameUi.FindSettings);
         _rulesScreen = UiGuard.Func("native.find-rules", GameUi.FindRules);
         _scoreboardRows.Clear();
         var rows = UiGuard.Func("native.find-scoreboard", GameUi.FindScoreboardRows);
         if (rows != null) _scoreboardRows.AddRange(rows);
+        TrackSceneTargets();
         RefreshAll();
     }
 
@@ -86,47 +129,156 @@ internal sealed class NativeUiHost {
         _scoreboardRows.Clear();
         _settingsScreen = null;
         _rulesScreen = null;
+        UiGuard.Run("scoreboard.reset", ScoreboardLayout.Reset, "runtime");
+        UiGuard.Run("settings.chrome.reset", SettingsPageChrome.Reset, "runtime");
     }
 
-    /// <summary>Retry pump: tries registrations that failed or were waiting for a target.</summary>
-    internal void Retry() {
-        if (_disposed || _bindings.Count == 0) return;
-        RefreshAll();
-    }
-
-    /// <summary>Refreshes all scoreboard cells and keeps the board within the screen.</summary>
-    internal void TickScoreboard() {
+    /// <summary>Applies one post-layout scoreboard fit and Settings chrome refresh after a canvas resize.</summary>
+    internal void OnCanvasLayoutChanged() {
         if (_disposed) return;
-
-        int cells = 0;
-        Transform? sample = null;
-        var bindings = _bindings.ToArray();
-        for (int i = 0; i < bindings.Length; i++) {
-            if (bindings[i] is not ScoreboardColumnHandle column || column.IsDisposed ||
-                column.State == NativeState.Unsupported) continue;
-            cells += UiGuard.Value("scoreboard.tick", column.TickCells, 0, column.OwnerId);
-            sample ??= UiGuard.Func("scoreboard.sample", () => column.FirstCell, column.OwnerId);
-        }
-
-        UiGuard.Run("scoreboard.fit", () => ScoreboardLayout.FitBoard(cells, sample), "runtime");
+        RetryWaiting();
+        if (HasScoreboardColumns) RequestScoreboardRefit();
+        if (HasSettingsBlocks) SettingsPageChrome.RequestRefresh();
     }
 
     internal void OnSettingsScreen(GameSettings? settings) {
         if (_disposed || settings == null) return;
         _settingsScreen = settings;
-        RefreshMatching(handle => handle is SettingsTabHandle);
+        EnsureSettingsLifetime(settings);
+        WatchRoot(settings.transform);
+        RefreshMatching(handle => handle is SettingsTabHandle or SettingsBlockHandle);
+        SettingsPageChrome.RequestRefresh();
+    }
+
+    internal void OnSettingsScreenHidden(GameSettings? settings) {
+        if (_disposed) return;
+
+        bool current = settings == null;
+        if (!current) {
+            var tracked = _settingsScreen;
+            if (tracked == null) current = true;
+            else {
+                try { current = tracked.Pointer == settings!.Pointer; }
+                catch { current = true; }
+            }
+        }
+        if (!current) return;
+
+        _settingsScreen = null;
+        SettingsPageChrome.OnScreenHidden();
+    }
+
+    internal void OnSettingsScreenDestroyed(GameSettings? settings) {
+        if (_disposed) return;
+        OnSettingsScreenHidden(settings);
+    }
+
+    internal void OnSettingsPageChanged(GameSettingSet? set) {
+        if (_disposed) return;
+        if (set != null) WatchRoot(set.transform);
+        RefreshMatching(handle => handle is SettingsTabHandle or SettingsBlockHandle);
+        SettingsPageChrome.RequestRefresh();
+    }
+
+    /// <summary>The game rebuilt one of its own settings pages; append/re-append the blocks that belong to it.</summary>
+    internal void OnSettingsGenerated(GameSettingSet? set) {
+        if (_disposed || set == null) return;
+
+        SettingsPage? page;
+        try { page = SettingsPages.PageOf(set); }
+        catch (Exception e) {
+            UiLog.OnceError("settings:page-of", "could not identify a settings page: " + e.Message);
+            return;
+        }
+        if (page == null) return;
+
+        WatchRoot(set.transform);
+
+        var blocks = new List<SettingsBlockHandle>();
+        var bindings = _bindings.ToArray();
+        for (int i = 0; i < bindings.Length; i++) {
+            if (bindings[i] is not SettingsBlockHandle block || block.IsDisposed ||
+                block.State == NativeState.Unsupported || block.Page != page.Value) continue;
+            blocks.Add(block);
+        }
+
+        blocks.Sort((left, right) => {
+            int order = left.Order.CompareTo(right.Order);
+            return order != 0 ? order : left.Sequence.CompareTo(right.Sequence);
+        });
+
+        for (int i = 0; i < blocks.Count; i++) {
+            var block = blocks[i];
+            UiGuard.Run("settings.block.generated", () => block.OnPageGenerated(set), block.OwnerId);
+        }
+
+        bool hasRows = HasAttachedSettingsRows(page.Value);
+        UiGuard.Run("settings.chrome", () => SettingsPageChrome.Apply(set, hasRows), "runtime");
+        SettingsPageChrome.RequestRefresh();
+    }
+
+    /// <summary>Keeps block rows contiguous and ordered by <see cref="SettingsBlockHandle.Order"/> inside one page.</summary>
+    internal void ReorderSettingsBlocks(GameSettingSet? set) {
+        if (set == null || _disposed) return;
+
+        var blocks = new List<SettingsBlockHandle>();
+        var bindings = _bindings.ToArray();
+        for (int i = 0; i < bindings.Length; i++) {
+            if (bindings[i] is not SettingsBlockHandle block || block.IsDisposed ||
+                !block.IsPageAlive || !block.IsOnPage(set)) continue;
+            blocks.Add(block);
+        }
+        if (blocks.Count == 0) return;
+
+        blocks.Sort((left, right) => {
+            int order = left.Order.CompareTo(right.Order);
+            return order != 0 ? order : left.Sequence.CompareTo(right.Sequence);
+        });
+
+        for (int i = 0; i < blocks.Count; i++) {
+            var rows = blocks[i].Rows;
+            for (int j = 0; j < rows.Count; j++) {
+                var go = rows[j].View?.Go;
+                if (go != null) go.transform.SetAsLastSibling();
+            }
+        }
+    }
+
+    internal void OnSettingsBlockDisposed(SettingsBlockHandle? block) {
+        if (_disposed || block == null) return;
+
+        var set = SettingsPages.Find(block.Page);
+        if (set == null) return;
+
+        bool remains = HasAttachedSettingsRows(block.Page, block);
+        if (remains) UiGuard.Run("settings.chrome.keep", () => SettingsPageChrome.Apply(set, true), "runtime");
+        else UiGuard.Run("settings.chrome.restore", () => SettingsPageChrome.Restore(set), "runtime");
     }
 
     internal void OnScoreboardRowReady(GameScoreboardRow? row) {
         if (_disposed || row == null) return;
         if (!_scoreboardRows.Contains(row)) _scoreboardRows.Add(row);
+        EnsureScoreboardLifetime(row);
+        WatchRoot(row.transform);
         RefreshMatching(handle => handle is ScoreboardColumnHandle);
+        RequestScoreboardRefit();
     }
 
     internal void OnScoreboardRowDestroyed(GameScoreboardRow? row) {
-        if (row == null) return;
+        if (row == null || _disposed) return;
         _scoreboardRows.Remove(row);
         RefreshMatching(handle => handle is ScoreboardColumnHandle);
+        RequestScoreboardRefit();
+    }
+
+    internal void OnScoreboardRowChanged(GameScoreboardRow? row) {
+        if (row == null || _disposed) return;
+        var bindings = _bindings.ToArray();
+        for (int i = 0; i < bindings.Length; i++) {
+            if (bindings[i] is not ScoreboardColumnHandle column || column.IsDisposed) continue;
+            UiGuard.Run("scoreboard.reapply", () => column.ReapplyRow(row), column.OwnerId);
+        }
+        RequestScoreboardRefit();
     }
 
     internal void OnRulesScreen(GameRules? rules) {
@@ -187,6 +339,102 @@ internal sealed class NativeUiHost {
         return null;
     }
 
+    internal void OnScoreboardColumnDisposed() {
+        if (_disposed) return;
+        RequestScoreboardRefit();
+    }
+
+    private void RequestScoreboardRefit() => LayoutOnce.Request(RefitScoreboard);
+
+    /// <summary>Retries registrations that are still waiting after a canvas layout change; attached handles are untouched.</summary>
+    private void RetryWaiting() {
+        bool waiting = false;
+        var bindings = _bindings.ToArray();
+        for (int i = 0; i < bindings.Length; i++) {
+            var state = bindings[i].State;
+            if (state is NativeState.Pending or NativeState.Failed or NativeState.Detached) {
+                waiting = true;
+                break;
+            }
+        }
+        if (!waiting) return;
+
+        var scene = UiGuard.Func("native.capture", CaptureScene);
+        if (scene == null) return;
+        for (int i = 0; i < bindings.Length; i++) {
+            var handle = bindings[i];
+            if (handle.State is NativeState.Pending or NativeState.Failed or NativeState.Detached)
+                RefreshOne(handle, scene);
+        }
+    }
+
+    private void RefitScoreboard() {
+        if (_disposed) return;
+
+        int cells = 0;
+        bool hasColumns = false;
+        Transform? sample = null;
+        var bindings = _bindings.ToArray();
+        for (int i = 0; i < bindings.Length; i++) {
+            if (bindings[i] is not ScoreboardColumnHandle column || column.IsDisposed ||
+                column.State == NativeState.Unsupported) continue;
+            hasColumns = true;
+            cells += UiGuard.Value("scoreboard.layout", column.PrepareLayout, 0, column.OwnerId);
+            sample ??= UiGuard.Func("scoreboard.sample", () => column.FirstCell, column.OwnerId);
+        }
+
+        UiGuard.Run("scoreboard.fit", () => ScoreboardLayout.FitBoard(hasColumns ? cells : 0, sample), "runtime");
+    }
+
+    private void TrackSceneTargets(Transform? topBar = null) {
+        topBar ??= UiGuard.Func("native.find-bar", GameUi.FindActiveBar);
+        WatchRoot(topBar);
+        if (_settingsScreen != null) EnsureSettingsLifetime(_settingsScreen);
+        WatchRoot(_settingsScreen?.transform);
+        WatchRoot(_rulesScreen?.transform);
+
+        for (int i = 0; i < _scoreboardRows.Count; i++) {
+            var row = _scoreboardRows[i];
+            if (row == null) continue;
+            EnsureScoreboardLifetime(row);
+            WatchRoot(row.transform);
+        }
+    }
+
+    private static void WatchRoot(Transform? transform) {
+        if (transform == null) return;
+        try { LayoutEvents.Watch(transform.root); }
+        catch (Exception e) { UiLog.Once("layout:scene-watch", "could not watch a scene canvas: " + e.Message); }
+    }
+
+    private void EnsureScoreboardLifetime(GameScoreboardRow row) {
+        if (row == null) return;
+        try {
+            var go = row.gameObject;
+            if (go == null) return;
+            var lifetime = go.GetComponent<ScoreboardRowLifetime>();
+            if (lifetime == null) lifetime = go.AddComponent<ScoreboardRowLifetime>();
+            lifetime?.Bind(this, row);
+        }
+        catch (Exception e) {
+            UiLog.Once("scoreboard:lifetime-add", "could not watch a scoreboard row: " + e.Message);
+        }
+    }
+
+    private void EnsureSettingsLifetime(GameSettings settings) {
+        if (settings == null) return;
+        try {
+            var go = settings.gameObject;
+            if (go == null) return;
+            var lifetime = go.GetComponent<SettingsScreenLifetime>();
+            if (lifetime == null) lifetime = go.AddComponent<SettingsScreenLifetime>();
+            lifetime?.Bind(this, settings);
+        }
+        catch (Exception e) {
+            UiLog.Once("settings:lifetime-add", "could not watch the Settings screen: " + e.Message);
+        }
+    }
+
     private void RefreshAll() {
         if (_disposed) return;
         var scene = UiGuard.Func("native.capture", CaptureScene);
@@ -210,8 +458,9 @@ internal sealed class NativeUiHost {
         }
     }
 
-    private static void RefreshOne(NativeHandle handle, NativeScene scene) {
+    private void RefreshOne(NativeHandle handle, NativeScene scene) {
         UiGuard.Run("native.refresh", () => handle.Refresh(scene), handle.OwnerId);
+        if (handle is ScoreboardColumnHandle && !handle.IsDisposed) RequestScoreboardRefit();
     }
 
     private NativeScene CaptureScene() {
@@ -224,8 +473,11 @@ internal sealed class NativeUiHost {
         if (_rulesScreen == null) _rulesScreen = UiGuard.Func("native.find-rules", GameUi.FindRules);
         if (_settingsScreen == null) _settingsScreen = UiGuard.Func("native.find-settings", GameUi.FindSettings);
 
+        var topBar = UiGuard.Func("native.find-bar", GameUi.FindActiveBar);
+        TrackSceneTargets(topBar);
+
         return new NativeScene {
-            TopBar = UiGuard.Func("native.find-bar", GameUi.FindActiveBar),
+            TopBar = topBar,
             Settings = _settingsScreen,
             ScoreboardRows = _scoreboardRows.ToArray(),
             RulesScreen = _rulesScreen,
@@ -253,5 +505,7 @@ internal sealed class NativeUiHost {
         _scoreboardRows.Clear();
         _settingsScreen = null;
         _rulesScreen = null;
+        UiGuard.Run("scoreboard.reset", ScoreboardLayout.Reset, "runtime");
+        UiGuard.Run("settings.chrome.reset", SettingsPageChrome.Reset, "runtime");
     }
 }

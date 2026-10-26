@@ -8,23 +8,43 @@ namespace DiceModders.UiKit.Native;
 /// scene changes; disposing the owning scope removes it for good.
 /// </summary>
 public sealed class TopBarButtonHandle : NativeHandle {
+    private readonly NativeUiHost _host;
+    private readonly Action<TopBarButtonHandle> _onDispose;
     private string? _iconName;
     private Sprite? _icon;
     private string? _tooltip;
     private Action? _click;
     private bool _visible = true;
+    private bool _interactable = true;
     private bool _missingLogged;
     private bool _missingIconLogged;
     private NativeButton? _button;
 
     internal TopBarButtonHandle(UiScope scope, NativeUiHost host, string id, string? iconName, Sprite? icon,
-                                string? tooltip, Action? click, bool visible)
+                                string? tooltip, Action? click, bool visible, bool interactable, int order,
+                                int sequence, Action<TopBarButtonHandle> onDispose)
         : base(scope, host, id) {
+        _host = host;
+        _onDispose = onDispose;
         _iconName = string.IsNullOrWhiteSpace(iconName) ? null : iconName.Trim();
         _icon = icon;
         _tooltip = tooltip;
         _click = click;
         _visible = visible;
+        _interactable = interactable;
+        Order = order;
+        Sequence = sequence;
+    }
+
+    internal int Order { get; }
+    internal int Sequence { get; }
+
+    internal bool IsInBar(Transform? bar)
+        => bar != null && _button?.Go != null && _button.Go.transform.parent == bar;
+
+    internal void MoveToIndex(int index) {
+        var go = _button != null ? _button.Go : null;
+        if (go != null) go.transform.SetSiblingIndex(Mathf.Max(0, index));
     }
 
     /// <summary>
@@ -73,6 +93,13 @@ public sealed class TopBarButtonHandle : NativeHandle {
         UiGuard.Run("topbar.set-visible", () => _button?.SetVisible(visible), OwnerId);
     }
 
+    /// <summary>Enables or disables the button. The state is kept across scene changes.</summary>
+    public void SetInteractable(bool interactable = true) {
+        if (IsDisposed) return;
+        _interactable = interactable;
+        UiGuard.Run("topbar.set-interactable", () => _button?.SetInteractable(interactable), OwnerId);
+    }
+
     internal override void Refresh(NativeScene scene) {
         if (IsDisposed || State == NativeState.Unsupported) return;
 
@@ -104,7 +131,9 @@ public sealed class TopBarButtonHandle : NativeHandle {
                     if (_icon != null) _button.SetIcon(_icon);
                     _button.SetTooltip(_tooltip ?? string.Empty);
                     _button.SetVisible(_visible);
+                    _button.SetInteractable(_interactable);
                 }, OwnerId);
+                _host.ReorderTopBar(bar);
                 return;
             }
             DetachCore();
@@ -153,10 +182,10 @@ public sealed class TopBarButtonHandle : NativeHandle {
         _button = created;
         _missingLogged = false;
         UiGuard.Run("topbar.attach", () => {
-            var go = _button != null ? _button.Go : null;
-            if (go != null) go.transform.SetAsLastSibling();
             _button?.SetVisible(_visible);
+            _button?.SetInteractable(_interactable);
         }, OwnerId);
+        _host.ReorderTopBar(bar);
         MarkAttached("top bar");
     }
 
@@ -165,6 +194,10 @@ public sealed class TopBarButtonHandle : NativeHandle {
         _button = null;
         if (button == null) return;
         UiGuard.Run("topbar.detach", button.Destroy, OwnerId);
+    }
+
+    protected override void DisposeCore() {
+        UiGuard.Run("topbar.on-dispose", () => _onDispose?.Invoke(this), OwnerId);
     }
 
     private Sprite? ResolveIcon() {

@@ -110,6 +110,28 @@ internal sealed class DemoController {
             scope.WhenReady(ui => {
                 UiLog.Info("demo: the startup registration point fired");
                 ui.Native.TopBar.AddIconButton("hammer", "UiKit demo", Toggle);
+
+                bool interactable = true;
+                TopBarButtonHandle? toggleInteractable = null;
+                toggleInteractable = ui.Native.TopBar.Add(new TopBarButtonSpec {
+                    Id = "uikit.demo.interactable",
+                    IconName = "hammer",
+                    Tooltip = "UiKit order 5; click toggles interactable",
+                    Order = 5,
+                    OnClick = () => {
+                        interactable = !interactable;
+                        toggleInteractable?.SetInteractable(interactable);
+                    },
+                });
+                ui.Native.TopBar.Add(new TopBarButtonSpec {
+                    Id = "uikit.demo.order",
+                    IconName = "hammer",
+                    Tooltip = "UiKit order 15",
+                    Order = 15,
+                    OnClick = Toggle,
+                });
+                if (ui.Native.TopBar.Get("uikit.demo.interactable") == null)
+                    UiLog.Warn("demo: TopBar.Get did not return the ordered button");
             });
             BuildDemoSettings();
             BuildNativeDemo(scope);
@@ -137,6 +159,7 @@ internal sealed class DemoController {
              .Position(80f, 80f)
              .Draggable()
              .Fullscreenable()
+             .FullscreenButton()
              .Closable()
              .Ornament(OrnamentStyle.Border);
             w.OnClose(Close);
@@ -151,14 +174,23 @@ internal sealed class DemoController {
                 status = body.Text("Ready.");
                 status?.Color(new Color(0.95f, 0.83f, 0.55f, 1f));
 
-                body.Separator();
+                body.Separator(3f);
                 body.Text("Buttons");
-                body.Row(row => {
+                var buttonRow = body.Row(row => {
                     row.Button("Click me", () => { if (status != null) status.Value = "Text button clicked."; });
                     var disabled = row.Button("Disabled");
                     disabled?.Interactable(false);
                     row.IconButton("hammer", () => { if (status != null) status.Value = "Icon button clicked."; }, "UiKit demo icon button");
+
+                    var hammer = _runtime.Theme.Icon("hammer");
+                    if (hammer != null) {
+                        row.IconButton(hammer, () => { if (status != null) status.Value = "Sprite icon button clicked."; },
+                            "UiKit demo sprite icon");
+                        row.Button("Sprite icon", () => { if (status != null) status.Value = "Button sprite icon clicked."; })
+                           ?.Icon(hammer);
+                    }
                 });
+                buttonRow?.Spacing(10f, 0f);
 
                 body.Text("Toggle, slider and dropdown");
                 body.Toggle("Toggle me", true, value => { if (status != null) status.Value = "Toggle: " + value; });
@@ -174,6 +206,28 @@ internal sealed class DemoController {
                         grid.Button(number.ToString(), () => { if (status != null) status.Value = "Grid button " + number; });
                     }
                 }).Height(72f);
+
+                body.Text("Flexible grid");
+                var flexible = body.Grid(grid => {
+                    for (int i = 0; i < 4; i++) {
+                        int number = i;
+                        grid.Button("Auto " + number, () => { if (status != null) status.Value = "Flexible grid button " + number; });
+                    }
+                });
+                flexible?.Height(48f);
+                flexible?.Spacing(10f, 4f);
+
+                body.Text("Image pointer Move and wheel");
+                var picture = body.Image(Texture2D.whiteTexture);
+                picture?.Height(90f).FillWidth();
+                picture?.Tint(new Color(0.35f, 0.55f, 0.9f, 1f)).UvRect(new Rect(0f, 0f, 1f, 1f));
+                picture?.OnPointer(e => {
+                    if (status != null && e.Kind == UiPointerKind.Move)
+                        status.Value = $"Image Move uv=({e.Uv.x:0.00}, {e.Uv.y:0.00}) size={picture?.Size.x:0}x{picture?.Size.y:0}";
+                });
+                picture?.OnScroll(notches => {
+                    if (status != null) status.Value = "Image wheel: " + notches.ToString("0.##");
+                });
 
                 body.Text("Fixed and weighted layout");
                 body.Row(row => {
@@ -221,6 +275,61 @@ internal sealed class DemoController {
             tab.AddDropdown("Demo dropdown", new[] { "First", "Second", "Third" }, 0,
                             index => UiLog.Info("demo settings dropdown: " + index));
             tab.AddButton("Demo button", "Click", () => UiLog.Info("demo settings button clicked"));
+            tab.AddInfo("Info rows wrap and can be updated through SetText.");
+            tab.AddStepper("Stepper", () => "3", delta => UiLog.Info("demo settings step: " + delta));
+            tab.AddButtons("Buttons", ("One", () => UiLog.Info("demo settings buttons: one")),
+                ("Two", () => UiLog.Info("demo settings buttons: two")));
+        });
+
+        int gameCount = 3;
+        SettingsRowHandle? gameInfo = null;
+        scope.Native.Settings.AddBlock(new SettingsBlockSpec {
+            Id = "uikit.demo.builtin.game",
+            Page = SettingsPage.Game,
+            Title = "UiKit demo block (Game)",
+            Order = 10,
+            Build = block => {
+                gameInfo = block.AddInfo("Stable Info row on the game's own Game page.");
+                block.AddToggle("Demo toggle", true,
+                    value => gameInfo?.SetText("Game-page toggle: " + value));
+                block.AddSlider("Demo slider", 0f, 10f, 4f,
+                    value => gameInfo?.SetText("Game-page slider: " + value.ToString("0")), "0", wholeNumbers: true);
+                block.AddDropdown("Demo dropdown", new[] { "First", "Second", "Third" }, 0,
+                    index => gameInfo?.SetText("Game-page dropdown: " + index));
+                block.AddStepper("Demo counter", () => gameCount.ToString(), delta => {
+                    gameCount += delta;
+                    gameInfo?.SetText("Game-page counter: " + gameCount);
+                });
+                block.AddButtons("Demo buttons",
+                    ("Reset", () => {
+                        gameCount = 3;
+                        gameInfo?.SetText("Game-page counter reset.");
+                    }),
+                    ("Notify", () => gameInfo?.SetText("Game-page button clicked.")));
+            },
+        });
+
+        int lobbyCount = 1;
+        SettingsRowHandle? lobbyInfo = null;
+        scope.Native.Settings.AddBlock(new SettingsBlockSpec {
+            Id = "uikit.demo.builtin.lobby",
+            Page = SettingsPage.Lobby,
+            Title = "UiKit demo block (Lobby)",
+            Order = 10,
+            Build = block => {
+                lobbyInfo = block.AddInfo("This block is appended to the match-start settings box.");
+                block.AddToggle("Lobby toggle", true,
+                    value => lobbyInfo?.SetText("Lobby toggle: " + value));
+                block.AddStepper("Lobby counter", () => lobbyCount.ToString(), delta => {
+                    lobbyCount += delta;
+                    lobbyInfo?.SetText("Lobby counter: " + lobbyCount);
+                });
+                block.AddButtons("Lobby buttons",
+                    ("Reset", () => {
+                        lobbyCount = 1;
+                        lobbyInfo?.SetText("Lobby counter reset.");
+                    }));
+            },
         });
     }
 

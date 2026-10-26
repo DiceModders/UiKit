@@ -144,8 +144,8 @@ public sealed class ScoreboardColumnHandle : NativeHandle {
         else MarkFailed("no scoreboard row has a stat cell to copy");
     }
 
-    /// <summary>Refreshes text and the send-button slot; returns the number of live cells.</summary>
-    internal int TickCells() {
+    /// <summary>Collapses the empty trail cell and returns the number of live cells after a row rebuild.</summary>
+    internal int PrepareLayout() {
         if (IsDisposed || State == NativeState.Unsupported) return 0;
 
         PruneCells();
@@ -153,9 +153,23 @@ public sealed class ScoreboardColumnHandle : NativeHandle {
             if (!cell.TrailCollapsed && cell.Trail != null) {
                 cell.TrailCollapsed = ScoreboardLayout.CollapseTrail(cell.Trail);
             }
-            ApplyCellText(cell);
         }
         return _cells.Count;
+    }
+
+    /// <summary>Re-reads the cached value after the game changed which island a row represents.</summary>
+    internal void ReapplyRow(GameRow row) {
+        if (IsDisposed || State == NativeState.Unsupported || row == null) return;
+
+        int key;
+        try { key = row.GetInstanceID(); }
+        catch { return; }
+
+        if (_cells.TryGetValue(key, out var cell) && cell.Go != null) ApplyCellText(cell);
+    }
+
+    protected override void DisposeCore() {
+        Scope.Runtime.NativeUi.OnScoreboardColumnDisposed();
     }
 
     protected override void DetachCore() {

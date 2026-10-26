@@ -54,6 +54,18 @@ public sealed class UiContainer : UiElement {
         return button;
     }
 
+    /// <summary>Adds an icon button from a caller-supplied sprite (for example a texture created at runtime).</summary>
+    public UiButton? IconButton(Sprite? icon, Action? onClick = null, string? tooltip = null) {
+        if (!EnsureAlive()) return null;
+        var button = UiGuard.Func("container.icon-button",
+            () => Custom.UiButton.Create(this, string.Empty, onClick, null, true, tooltip, icon));
+        if (button != null) {
+            UiGuard.Run("container.icon-button.tooltip", () => button.Tooltip(tooltip));
+            NotifyChildAdded(true);
+        }
+        return button;
+    }
+
     public UiToggle? Toggle(string? label, bool value, Action<bool>? onChanged = null) {
         if (!EnsureAlive()) return null;
         return UiGuard.Func("container.toggle", () => Custom.UiToggle.Create(this, label, value, onChanged));
@@ -95,6 +107,22 @@ public sealed class UiContainer : UiElement {
         }, build);
     }
 
+    public UiContainer? Grid(Action<UiContainer>? build = null) {
+        if (!EnsureAlive()) return null;
+        return BuildGroup("DM Grid", rect => {
+            var layout = rect.gameObject.AddComponent<GridLayoutGroup>();
+            layout.spacing = new Vector2(6f, 6f);
+            layout.padding = new RectOffset(0, 0, 0, 0);
+            layout.childAlignment = TextAnchor.UpperLeft;
+            layout.constraint = GridLayoutGroup.Constraint.Flexible;
+            layout.cellSize = new Vector2(100f, 100f);
+
+            var element = UiFactory.Layout(rect);
+            if (element != null) element.flexibleWidth = 1f;
+            return layout;
+        }, build);
+    }
+
     public UiContainer? Grid(int columns, Action<UiContainer>? build)
         => Grid(columns, 100f, 100f, build);
 
@@ -132,7 +160,7 @@ public sealed class UiContainer : UiElement {
         return this;
     }
 
-    public UiContainer Separator() {
+    public UiContainer Separator(float height = 1f) {
         if (!EnsureAlive()) return this;
 
         UiGuard.Run("container.separator", () => {
@@ -140,21 +168,26 @@ public sealed class UiContainer : UiElement {
             if (image == null) return;
             var element = UiFactory.Layout(image.rectTransform);
             if (element == null) return;
-            element.minHeight = element.preferredHeight = 1f;
+            float value = Mathf.Max(0f, UiGuard.Finite(height, 1f));
+            element.minHeight = element.preferredHeight = value;
             element.flexibleWidth = 1f;
             element.flexibleHeight = 0f;
         });
         return this;
     }
 
-    public UiContainer Spacing(float spacing) {
+    public UiContainer Spacing(float spacing) => Spacing(spacing, spacing);
+
+    /// <summary>Sets horizontal and vertical spacing independently. Grid and column/row layouts use the relevant axis.</summary>
+    public UiContainer Spacing(float horizontal, float vertical) {
         if (!EnsureAlive()) return this;
 
         UiGuard.Run("container.spacing", () => {
-            float value = Mathf.Max(0f, UiGuard.Finite(spacing, 0f));
-            if (_layout is HorizontalLayoutGroup horizontal) horizontal.spacing = value;
-            else if (_layout is VerticalLayoutGroup vertical) vertical.spacing = value;
-            else if (_layout is GridLayoutGroup grid) grid.spacing = new Vector2(value, value);
+            float x = Mathf.Max(0f, UiGuard.Finite(horizontal, 0f));
+            float y = Mathf.Max(0f, UiGuard.Finite(vertical, 0f));
+            if (_layout is HorizontalLayoutGroup h) h.spacing = x;
+            else if (_layout is VerticalLayoutGroup v) v.spacing = y;
+            else if (_layout is GridLayoutGroup grid) grid.spacing = new Vector2(x, y);
         });
         return this;
     }
@@ -209,7 +242,9 @@ public sealed class UiContainer : UiElement {
             if (root == null) return;
             for (int i = root.childCount - 1; i >= 0; i--) {
                 var child = root.GetChild(i);
-                if (child != null) UiFactory.Destroy(child.gameObject);
+                if (child == null) continue;
+                child.gameObject.SetActive(false);
+                UiFactory.Destroy(child.gameObject);
             }
         });
         return this;

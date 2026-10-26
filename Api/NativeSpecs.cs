@@ -18,6 +18,30 @@ public sealed class TopBarButtonSpec {
     public string? Tooltip { get; init; }
     public Action? OnClick { get; init; }
     public bool InitiallyVisible { get; init; } = true;
+
+    /// <summary>Lower values come first among mod buttons. Equal values keep registration order.</summary>
+    public int Order { get; init; }
+
+    /// <summary>Initial enabled state. Use <see cref="TopBarButtonHandle.SetInteractable"/> to change it later.</summary>
+    public bool InitiallyInteractable { get; init; } = true;
+}
+
+/// <summary>Description of a block to append to one of the game's built-in Settings pages.</summary>
+public sealed class SettingsBlockSpec {
+    /// <summary>Scope-local id. A null or empty id gets a generated diagnostic id.</summary>
+    public string? Id { get; init; }
+
+    /// <summary>Built-in page that receives the block.</summary>
+    public SettingsPage Page { get; init; } = SettingsPage.Game;
+
+    /// <summary>Optional header shown above the first row.</summary>
+    public string? Title { get; init; }
+
+    /// <summary>Lower values come first among mod blocks on the same page.</summary>
+    public int Order { get; init; }
+
+    /// <summary>Called once, immediately, while the block is still detached. Add stable rows with the handle.</summary>
+    public Action<SettingsBlockHandle>? Build { get; init; }
 }
 
 /// <summary>Description of a tab to insert into the game's Settings screen.</summary>
