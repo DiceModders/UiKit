@@ -175,6 +175,21 @@ internal sealed class DemoController {
                     }
                 }).Height(72f);
 
+                body.Text("Fixed and weighted layout");
+                body.Row(row => {
+                    row.Column(fixedWidth => {
+                        fixedWidth.Text("Fixed 120");
+                    })?.FixedW(120f);
+
+                    row.Column(one => {
+                        one.Text("Weight 1");
+                    })?.WeightW(1f);
+
+                    row.Column(two => {
+                        two.Text("Weight 2");
+                    })?.WeightW(2f);
+                })?.FixedH(48f);
+
                 body.Text("Window ornament");
                 body.Row(row => {
                     row.Button("Border", () => w.Ornament(OrnamentStyle.Border));

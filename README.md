@@ -256,11 +256,21 @@ w.Body.Image(texture)?.Height(240).FillWidth();
 w.Body.Scroll(list => {
     for (int i = 0; i < 100; i++) list.Text($"Row {i}");
 });
+
+w.Body.Row(row => {
+    row.Column(sidebar => { /* ... */ })?.FixedW(160f);
+    row.Column(content => { /* ... */ })?.WeightW(1f);
+})?.FixedH(240f);
 ```
 
-`Fixed`, `Width`, `Height`, `Fill`, `FillWidth` and `FillHeight` accept a possibly-null element and no-op when it is
-`null`, so a chain stays type-safe without an extra check. Widget factories return `null` when the container is disposed or
-the widget cannot be built.
+`Fixed(px)` fixes both dimensions to the same size, while `Fixed(width, height)` does the same with separate values.
+`FixedW`/`Width` and `FixedH`/`Height` fix one axis. `Weight`/`WeightW`/`WeightH` give an element a proportional share of
+the free space along the main axis of a `Row`, `Column` or `UiWindow.Body`; fixed sizes are reserved first. `Fill*` is
+shorthand for weight `1`; a weight of `0` means no flexible share.
+
+Weights do not affect top-level `UiWindow.Size(...)` — windows stay fixed — and grid cells, which keep `CellSize`.
+All layout helpers accept a possibly-null element and no-op when it is `null`, so a chain stays type-safe without an extra
+check. Widget factories return `null` when the container is disposed or the widget cannot be built.
 
 ### Text
 
