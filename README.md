@@ -1,49 +1,137 @@
 # DiceModders UiKit
 
-A shared UI runtime for Dice Kingdoms mods. One plugin owns the canvases, assets and game hooks; mods only create scopes.
+A shared UI toolkit for Dice Kingdoms mods. UiKit owns the global UI runtime, game skins, native hooks and
+lifecycle, so a mod can build windows, widgets and native-looking additions without creating its own canvases or
+Harmony patches.
 
-> **Status: P0.5 native layer.** The managed widgets and all four native integrations are in place: top bar, Settings,
-> scoreboard columns and Rules civilizations. Settings supports both mod tabs and stable blocks on the built-in Video, Audio,
-> Input, Game and Lobby pages. Top-bar ordering, managed fullscreen windows and mouse Move/wheel delivery are included.
-> Native registrations are declarative and lifecycle-managed by the library. The public API is nullable-annotated and
-> follows a null/no-throw error contract. Breaking renames from the P0 names have been applied without compatibility aliases.
-> Native additions are add-only; editing existing game UI is deferred. Startup content uses `scope.WhenReady`; a mod does not
-> need its own UI-ready hook.
+> **Status:** active development. The managed API is usable and nullable-annotated; native integrations are
+> add-only and target the current Dice Kingdoms build. There are no automated in-game tests; the built-in demo is
+> the smoke test.
 
-## Setup
+## Contents
 
-1. Build the library and copy `DiceModders.UiKit.dll` to `BepInEx/plugins`.
-   Only one assembly with this name can be installed: remove any older build (including `UIKit_Another_Version`) first.
-2. Reference `DiceModders.UiKit.dll` from your mod.
-3. Add a BepInEx dependency on the UiKit plugin.
-4. Create exactly one scope in `Load`, register content with `WhenReady`, and dispose the scope in `Unload`.
+- [Why UiKit](#why-uikit)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Core concepts](#core-concepts)
+- [User guide](#user-guide)
+  - [Windows](#windows)
+  - [Containers and layout](#containers-and-layout)
+  - [Widgets](#widgets)
+  - [Images, pointer input and wheel](#images-pointer-input-and-wheel)
+  - [Theme and templates](#theme-and-templates)
+- [Native integrations](#native-integrations)
+  - [Top bar](#top-bar)
+  - [Settings](#settings)
+  - [Scoreboard](#scoreboard)
+  - [Rules civilizations](#rules-civilizations)
+  - [Native handle lifecycle](#native-handle-lifecycle)
+- [Built-in demo](#built-in-demo)
+- [Contracts and limitations](#contracts-and-limitations)
+- [Documentation](#documentation)
+
+## Why UiKit
+
+A game UI is more than a window. It needs canvases, sorting orders, fonts, sprites, input handling, native skins,
+settings integration and cleanup across scene changes. If every mod implements that itself, mods duplicate work and
+fight over the same game objects.
+
+UiKit provides one shared runtime and one ownership model:
+
+- one set of layer canvases for the whole process;
+- one theme/asset/template cache;
+- one event-driven native lifecycle;
+- one safe boundary for callbacks and game callbacks;
+- stable scopes and native handles that survive scene changes.
+
+A mod creates a `UiScope`, builds content through `scope.Custom`, and registers native additions through
+`scope.Native`. Disposing the scope removes everything it owns.
+
+## Features
+
+| Area | What you get |
+|---|---|
+| Managed UI | Windows, rows, columns, grids, scrolling, text, images, buttons, toggles, sliders and dropdowns |
+| Native integrations | Top-bar buttons, Settings tabs and blocks, scoreboard columns and Rules civilizations |
+| Native look | Game button/slider/dropdown/settings skins when available, with managed fallbacks for managed widgets |
+| Lifecycle | Stable handles, scene-safe reattachment, `WhenReady`, scope disposal and idempotent cleanup |
+| Input | Pointer events, drag support, fullscreen windows and wheel scrolling |
+| Safety | Null/no-throw public contract, guarded callbacks and main-thread-only game access |
+| Theming | Shared game font, materials, colors and sprites through `UiTheme` |
+
+## Requirements
+
+- Dice Kingdoms (IL2CPP build) with BepInEx 6 for IL2CPP.
+- .NET 6 for the mod project.
+- A reference to `DiceModders.UiKit.dll`.
+
+## Installation
+
+1. Build or obtain `DiceModders.UiKit.dll` and copy it to `BepInEx/plugins`.
+   Keep only one UiKit assembly installed.
+2. Reference the DLL from your mod project.
+3. Add UiKit as a BepInEx dependency:
 
 ```csharp
+using BepInEx;
+using BepInEx.Unity.IL2CPP;
+
+[BepInPlugin("author.my-mod", "My Mod", "1.0.0")]
+[BepInDependency("DiceModders.UiKit")]
+public sealed class MyPlugin : BasePlugin {
+    public override void Load() {
+        // Create a scope and register content here.
+    }
+
+    public override bool Unload() {
+        // Dispose the scope here.
+        return true;
+    }
+}
+```
+
+4. Create exactly one scope in `Load`, register startup content with `scope.WhenReady`, and dispose the scope in
+   `Unload`.
+
+Do not call `UiKit.Initialize` or `UiKit.Shutdown` from a mod. The UiKit plugin owns the shared runtime.
+
+## Quick start
+
+```csharp
+using System;
+using BepInEx;
+using BepInEx.Unity.IL2CPP;
 using DiceModders.UiKit;
 using DiceModders.UiKit.Custom;
 
+[BepInPlugin("author.my-mod", "My Mod", "1.0.0")]
+[BepInDependency("DiceModders.UiKit")]
 public sealed class MyPlugin : BasePlugin {
     private UiScope? _ui;
 
     public override void Load() {
-        _ui = UiKit.CreateScope("my.mod.id");
+        _ui = UiKit.CreateScope("author.my-mod");
+
         _ui?.WhenReady(ui => {
-            ui.Native.TopBar.AddIconButton("hammer", "Open my window", () => ShowMyWindow(ui));
+            ui.Native.TopBar.AddIconButton("hammer", "Open My Mod", () => OpenWindow(ui));
         });
     }
 
-    private static void ShowMyWindow(UiScope ui) {
+    private static void OpenWindow(UiScope ui) {
         var window = ui.Custom.Window(w => {
-            w.Title("My window")
-             .Size(420, 280)
+            w.Title("My Mod")
+             .Size(460f, 320f)
              .Center()
              .Draggable()
              .Closable();
 
-            w.Body.Paragraph("Everything created through this scope is removed when the scope is disposed.");
+            w.Body.Paragraph(
+                "Everything created through this scope is removed when the mod unloads.");
 
             w.Body.Row(row => {
-                row.Button("OK", () => { /* ... */ })?.FillWidth();
+                row.Button("OK", () => w.Close())?.FillWidth();
                 row.Button("Cancel", w.Close)?.FillWidth();
             });
         });
@@ -53,96 +141,543 @@ public sealed class MyPlugin : BasePlugin {
 
     public override bool Unload() {
         _ui?.Dispose();
+        _ui = null;
         return true;
     }
 }
 ```
 
-`UiKit.Initialize`/`Shutdown` are plugin-only. `UiKitRuntime` and `UiOptions` are internal; mods cannot create, replace or
-stop the shared runtime, scan assets or patch the game themselves. All UI calls must run on the main thread; there is no
-dispatcher.
+The example does not create a canvas or a Harmony patch. `OpenWindow` uses the shared top bar and the shared managed
+UI layer.
 
-## Startup registration
+## Core concepts
 
-`scope.WhenReady(Action<UiScope>)` is the library's single guaranteed UI-readiness registration point. It is a scope
-method, not a static event:
+### Runtime and scopes
 
-* each registered callback runs once after the first ready game UI (normally the main menu, not the first match);
-* it fires immediately when the scope registers after the runtime has marked the UI ready;
-* callbacks run in registration order on the main thread through the error boundary; one failure does not stop the others;
-* disposing the scope drops a callback that has not run yet;
-* it does not repeat for a match, scene, tab or screen.
+`UiKit` is the only public entry point for the shared runtime. A mod never creates or stops it. `UiKit.CreateScope(id)`
+returns a `UiScope?`; one scope owns all widgets and native handles created through that mod.
 
-Readiness is a one-time process state, not a per-scene signal: after it, a late registration runs immediately and native
-handles deal with the current scene. "Ready" means the runtime has an active game top bar, the shared layer canvases exist
-and the native host has been refreshed.
-`WhenReady` does not wait for Settings, the scoreboard, the Rules screen or match-only templates; those native handles remain
-`Pending` and attach when their screen appears. A callback may run before a match is loaded, so build match-specific windows
-lazily or in a later game callback instead of assuming match art exists.
+```csharp
+var scope = UiKit.CreateScope("author.my-mod");
+if (scope == null) {
+    // UiKit is not installed or the runtime is unavailable.
+    return;
+}
+```
 
-Registering UI from your own Harmony or scene hooks is allowed, but UiKit cannot guarantee the game UI is ready there:
-such a hook may run before the canvases, assets or templates exist. `WhenReady` is the one library-provided entry point that
-guarantees the first ready game UI. Native handles may still be registered directly from `Load`; they are stable and attach
-later.
+Scope disposal is idempotent and removes owned windows and native handles in reverse creation order. A disposed scope
+cannot register new content.
 
-## Lifecycle and error contract
+### Startup registration
 
-* The UiKit plugin owns the runtime. A scope is the only lifetime token a mod creates.
-* `UiKit.CreateScope(id)` returns `null` when the runtime is unavailable. A null or empty `id` gets a generated diagnostic id.
-* Public factories return `null` when the scope/runtime is gone, a required argument is missing, or the object cannot be built.
-* Fluent methods no-op for an invalid state and return the same handle. `Dispose` is idempotent.
-* User callbacks run through an error boundary. A failing callback is logged and cannot break the game loop or another mod.
-* Missing game sprites, fonts or native templates are logged once and degrade to a managed fallback or a `null` widget.
-  Library errors never escape as exceptions.
-* Native registrations are stable handles. An unavailable target, template or policy is represented by the handle's
-  `NativeState`, not by throwing. Calling native APIs from plugin `Load` is safe.
-* `scope.WhenReady(Action<UiScope>)` is the one guaranteed startup registration point; see **Startup registration**.
-  Registering UI from your own hooks is allowed, but UiKit does not guarantee readiness there.
-* The assembly has nullable annotations enabled (`#nullable enable`). Treat factory results and optional properties as
-  nullable (`UiScope?`, `UiWindow?`, `UiText?`, `TopBarButtonHandle?`, ...).
+`scope.WhenReady(Action<UiScope>)` is the one guaranteed startup registration point:
 
-## Breaking renames (P0 to P0.5)
+- the callback runs once on the main thread after the shared layers and game top bar exist;
+- callbacks run in registration order;
+- a callback registered after the runtime is ready runs immediately;
+- disposing the scope before the callback runs cancels it;
+- `WhenReady` is not repeated for scenes, matches, tabs or screens.
 
-The old public type names were removed. There are no compatibility aliases.
+```csharp
+_ui?.WhenReady(ui => {
+    // Build startup windows and native registrations here.
+});
+```
 
-### Managed UI
+`WhenReady` does not wait for match-only UI. Settings, the scoreboard and the Rules screen may not exist yet. Native
+handles remain `Pending` and attach when their screen appears. Build match-specific managed content lazily if it
+depends on match art.
 
-| Old type | New type |
+Registering native handles directly from `Load` is also supported: the handle is stable and attaches later. For
+managed widgets that should use native skins, build them from `WhenReady` or later.
+
+### Main thread and error contract
+
+- All UiKit calls are main-thread-only. UiKit does not provide a dispatcher.
+- Public factories return `null` when the scope is unavailable, an argument is invalid, or construction fails.
+- Fluent methods no-op on an invalid state and return the same handle.
+- `Dispose` is idempotent.
+- User callbacks run through an error boundary; one callback failure does not stop other mods or the game loop.
+- Missing sprites, fonts or native templates are returned as `null` or replaced by a managed fallback, depending on
+  the widget type.
+- Nullable annotations are enabled. Treat factory results as nullable and use `?.` where appropriate.
+
+### API map
+
+| Type | Responsibility |
 |---|---|
-| `Window` | `UiWindow` |
-| `Button` | `UiButton` |
-| `Text` | `UiText` |
-| `Image` | `UiImage` |
-| `Container` | `UiContainer` |
-| `Element` | `UiElement` |
-| `Scroll` | `UiScroll` |
-| `Slider` | `UiSlider` |
-| `Toggle` | `UiToggle` |
-| `Dropdown` | `UiDropdown` |
-| `Layout` | `UiLayout` |
-| `PointerEvent` / `PointerKind` | `UiPointerEvent` / `UiPointerKind` |
+| `UiKit` | `CreateScope`, demo helpers, `IsInitialized`, `IsDemoVisible` |
+| `UiScope` | `Id`, `Custom`, `Native`, `WhenReady`, `Dispose`, `IsDisposed` |
+| `CustomApi` | `Window`, `Theme` |
+| `NativeApi` | `TopBar`, `Settings`, `Scoreboard`, `Rules` |
+| `UiElement` | Shared base: `Root`, `IsAlive`, `Dispose` |
 
-The scope property and factory method names did not change: `scope.Custom.Window`, `Body`, `TitleBar`, `Button`, `Text`,
-etc. retain their names. Their return and parameter types now use the `Ui*` names. For example, `CustomApi.Window` returns
-`UiWindow?`, `UiWindow.Body` is a `UiContainer`, and `UiWindow.TitleBar` is a `UiContainer?`.
+### Native handles
 
-### Native integrations
+Native additions return stable handles (`TopBarButtonHandle`, `SettingsTabHandle`, `SettingsBlockHandle`,
+`ScoreboardColumnHandle`, `RulesCivilizationHandle`). The handle does not disappear when a scene changes; only its
+attachment state changes.
 
-| Old type | New type |
+```csharp
+var button = scope.Native.TopBar.AddIconButton("hammer", "Open", OpenWindow);
+if (button is { State: NativeState.Failed }) {
+    // button.Status explains why it is not attached yet.
+}
+
+button?.SetInteractable(false);
+```
+
+Common handle members:
+
+| Member | Meaning |
 |---|---|
-| `TopBar` | `TopBarApi` |
-| `Settings` | `SettingsApi` |
-| `TopBarButton` | `TopBarButtonHandle` |
-| `SettingsRow` | `SettingsRowHandle` |
+| `Id` | Stable diagnostic id, unique inside the owning scope |
+| `State` | `Pending`, `Attached`, `Detached`, `Failed`, `Unsupported` or `Disposed` |
+| `Status` | Human-readable detail for the current state |
+| `IsAttached` | True while the handle owns live game UI objects |
+| `IsDisposed` | True after disposal |
+| `Dispose()` | Removes the registration and its native objects |
 
-The scope properties kept their names: `scope.Native.TopBar` is now a `TopBarApi`, and `scope.Native.Settings` is a
-`SettingsApi`. Two new properties expose the native screens: `scope.Native.Scoreboard` (`ScoreboardApi`) and
-`scope.Native.Rules` (`RulesApi`).
+## User guide
+
+### Windows
+
+`scope.Custom.Window(build)` creates a managed window. The builder is also the handle.
+
+```csharp
+var window = scope.Custom.Window(w => {
+    w.Title("Kingdom overview")
+     .Size(520f, 360f)
+     .Position(100f, 80f)
+     .Layer(Layer.AboveGame)
+     .SortingOrder(10)
+     .Draggable()
+     .Closable()
+     .Fullscreenable()
+     .FullscreenButton()
+     .Ornament(OrnamentStyle.Border);
+
+    w.OnClose(() => { /* cleanup owned state */ });
+    w.Body.Paragraph("Window content goes here.");
+});
+```
+
+| Member | Purpose |
+|---|---|
+| `Body` | `UiContainer` for window content |
+| `TitleBar` | Optional `UiContainer?` for title-bar buttons/content |
+| `Title`, `Size`, `Position`, `Center` | Basic window layout |
+| `Layer` | `Layer.BehindGame`, `Layer.Game` or `Layer.AboveGame` |
+| `SortingOrder` | Extra order within the selected layer |
+| `Draggable`, `Closable` | Enable dragging and the close button |
+| `Fullscreenable`, `FullscreenButton` | Allow fullscreen and optionally add the built-in toggle |
+| `Ornament` | `OrnamentStyle.None`, `Border`, `BorderWithTwoCorners`, `BorderWithFourCorners` or `Classic` |
+| `OnClose` | Callback invoked by `Close()` |
+| `Show`, `Hide`, `Toggle`, `BringToFront` | Visibility and ordering |
+| `Fullscreen`, `Restore`, `Close`, `Dispose` | Window state changes |
+
+Top-level windows keep their explicit `Size`; weighted layout applies inside `Row`, `Column`, `Grid` and `Body`.
+
+### Containers and layout
+
+`UiContainer` is the layout surface used by `Body`, rows, columns, grids, scroll views and title bars.
+
+```csharp
+w.Body.Scroll(list => {
+    for (int i = 0; i < 20; i++)
+        list.Text("Row " + (i + 1));
+}).Height(240f).FillWidth();
+
+w.Body.Row(row => {
+    row.Column(left => {
+        left.Text("Fixed");
+    })?.FixedW(140f);
+
+    row.Column(right => {
+        right.Button("Stretch", () => { })?.FillWidth();
+    })?.WeightW(1f);
+}).Height(48f);
+
+w.Body.Grid(3, 100f, 80f, grid => {
+    for (int i = 0; i < 6; i++)
+        grid.Button("Cell " + i, () => { })?.Fill();
+}).Height(180f);
+```
+
+| Method | Description |
+|---|---|
+| `Text`, `Paragraph` | One-line or wrapped text |
+| `Button`, `IconButton` | Text or icon button |
+| `Toggle`, `Slider`, `Dropdown` | Native-styled controls when available |
+| `Image` | Picture with optional pointer and wheel callbacks |
+| `Scroll` | Vertical scroll view with a managed content container |
+| `Row`, `Column` | Horizontal or vertical layout group |
+| `Grid` | Flexible or fixed-column grid |
+| `Spacer`, `Separator` | Layout gap or visual line |
+| `Spacing`, `Padding` | Layout spacing and insets |
+| `Columns`, `CellSize` | Configure a grid after creation |
+| `Clear`, `Remove` | Remove all children or one child |
+
+Layout helpers are extension methods on `UiElement`:
+
+| Helper | Effect |
+|---|---|
+| `Fixed(width, height)` / `Fixed(size)` | Fixed width and height |
+| `FixedW(width)` / `FixedH(height)` | Fix one axis |
+| `Width(width)` / `Height(height)` | Alias for a fixed axis |
+| `Weight(weight)` | Share free width and height |
+| `WeightW(weight)` / `WeightH(weight)` | Share one axis |
+| `Fill()`, `FillWidth()`, `FillHeight()` | Weight of `1` |
+
+`UiScroll` exposes `Content`, `Position` (`0` top, `1` bottom), `ToTop()` and `ToBottom()`.
+
+### Widgets
+
+Factories live on `UiContainer`. They can return `null`; use `?.` at the call site if you only need best-effort UI.
+
+| Factory | Returns | Useful members |
+|---|---|---|
+| `Text` | `UiText` | `Value`, `Wrap`, `Align`, `Color`, `Size` |
+| `Paragraph` | `UiText` | Wrapped text |
+| `Button` | `UiButton` | `Text`, `Icon`, `Tooltip`, `Selected`, `Interactable`, `OnClick` |
+| `IconButton` | `UiButton` | Icon from a theme name or `Sprite` |
+| `Toggle` | `UiToggle` | `Value`, `Set`, `Text`, `Interactable` |
+| `Slider` | `UiSlider` | `Value`, `Set`, `Range`, `Format`, `WholeNumbers`, `Interactable` |
+| `Dropdown` | `UiDropdown` | `Index`, `Selected`, `Count`, `Set`, `Options`, `Interactable` |
+| `Image` | `UiImage` | Texture, UV, tint, filter and pointer events |
+| `Separator` | `UiContainer` | Thin horizontal line |
+| `Spacer` | `UiContainer` | Empty layout space |
+
+Examples:
+
+```csharp
+var toggle = w.Body.Toggle("Enable feature", true, enabled => {
+    // Push changes into your own data.
+});
+
+var slider = w.Body.Slider(0f, 100f, 50f, value => {
+    // Optional direct callback; call Set for programmatic updates.
+});
+
+var dropdown = w.Body.Dropdown(new[] { "Low", "Medium", "High" }, 1, index => {
+    // 0, 1 or 2
+});
+
+var button = w.Body.Button("Apply", Apply);
+button?.Icon("Misc-Check");
+button?.Tooltip("Apply changes");
+
+toggle?.Set(false);
+slider?.Set(75f);
+dropdown?.Set(2);
+```
+
+#### Updating values
+
+Use the handle methods instead of rebuilding content:
+
+```csharp
+text.Value = "New status";
+text.Wrap(true);
+text.Color(Color.yellow);
+
+button?.Text("Running");
+button?.Interactable(false);
+
+toggle?.Set(true);
+slider?.Set(25f);
+slider?.WholeNumbers(true);
+dropdown?.Options(new[] { "A", "B", "C" });
+dropdown?.Set(1);
+```
+
+#### Text
+
+`Text` creates a one-line label with ellipsis. `Paragraph` wraps text and grows its height with the content at the
+width the layout gives it.
+
+```csharp
+var label = w.Body.Text("Ready.");
+var body = w.Body.Paragraph("A longer description that can wrap onto several lines.");
+
+label?.Size(18f).Color(Color.white);
+body?.Wrap(true);
+```
+
+### Images, pointer input and wheel
+
+`Image(Texture?)` creates a picture with UV, tint, filter and pointer support.
+
+```csharp
+var picture = w.Body.Image(Texture2D.whiteTexture);
+picture?.UvRect(new Rect(0f, 0f, 1f, 1f));
+picture?.Tint(new Color(0.35f, 0.55f, 0.9f, 1f));
+picture?.KeepAspect(true);
+
+picture?.OnPointer(e => {
+    if (e.Kind == UiPointerKind.Move) {
+        // e.Uv, e.Position and e.Delta are inside the picture.
+    }
+    if (e.Kind == UiPointerKind.Drag) {
+        // e.Button is 0 for the left mouse button.
+    }
+});
+
+picture?.OnScroll(notches => {
+    // Positive values scroll up; the library normalises wheel notches.
+});
+```
+
+Pointer kinds: `Down`, `Up`, `Click`, `Move`, `Drag`, `Enter`, `Exit`.
+
+`UiPointerEvent` contains:
+
+| Member | Meaning |
+|---|---|
+| `Kind` | Pointer kind |
+| `Button` | `0` left, `1` right, `2` middle; `-1` for non-button events |
+| `Uv` | Position inside the element, 0..1 |
+| `Position` | Position inside the element in canvas units, from bottom-left |
+| `Delta` | Movement since the previous event in canvas units |
+
+Wheel priority: an image `OnScroll` handler wins while the pointer is over it. If the image has no scroll handler,
+the wheel passes to the surrounding `UiScroll`.
+
+### Theme and templates
+
+`scope.Custom.Theme` exposes the game's look. Lookups return `null` when an asset is not loaded or does not exist.
+
+```csharp
+using TMPro;
+using UnityEngine;
+
+var theme = scope.Custom.Theme;
+
+Sprite? hammer = theme.Icon("hammer");
+Sprite? panel = theme.Sprite("Background-3");
+Sprite? ornament = theme.Ornament(OrnamentStyle.Classic);
+TMP_FontAsset? font = theme.Font;
+Material? material = theme.FontMaterial;
+Color textColor = theme.TextColor;
+```
+
+The BepInEx configuration controls native widget usage:
+
+```ini
+[Widgets]
+Templates = PreferNative
+```
+
+| Value | Behavior |
+|---|---|
+| `PreferNative` | Use the game's widget when its template is usable; otherwise build a managed fallback |
+| `ManagedOnly` | Never use game templates; native handles become `Unsupported` |
+| `NativeOnly` | Use only game widgets; a missing template is reported and the widget is skipped |
+
+Managed widgets built from `WhenReady` or later can use native skins. A widget created before the game's templates are
+available may use a managed fallback; recreate it or use the demo rebuild action after entering a match.
+
+## Native integrations
+
+Native APIs insert objects into the game's own UI. They are **add-only**: UiKit does not expose editing or removal of
+existing game elements. Native specs, enums and handles live in `DiceModders.UiKit.Native`; add
+`using DiceModders.UiKit.Native;` when using the examples below.
+
+Native registrations are declarative and scene-safe. You register a description; the library attaches it when the
+target exists, detaches it when the target disappears and reattaches when the target returns. There are no per-screen
+callbacks for mods.
+
+### Top bar
+
+```csharp
+var open = ui.Native.TopBar.Add(new TopBarButtonSpec {
+    Id = "author.my-mod.open",
+    IconName = "hammer",
+    Tooltip = "Open My Mod",
+    Order = 10,
+    InitiallyVisible = true,
+    InitiallyInteractable = true,
+    OnClick = () => OpenWindow(ui),
+});
+
+open?.SetInteractable(false);
+open?.SetTooltip("Open My Mod");
+open?.SetVisible(true);
+
+var same = ui.Native.TopBar.Get("author.my-mod.open");
+```
+
+`AddIconButton(iconName, tooltip, onClick, order)` and `AddIconButton(sprite, tooltip, onClick, order)` are
+convenience overloads. Lower `Order` values come first among mod buttons. You can also supply a caller-created
+`Sprite` instead of a theme icon name.
+
+### Settings
+
+Settings supports two kinds of additions:
+
+- a full mod-owned tab;
+- a stable block appended to a built-in page: `Video`, `Audio`, `Input`, `Game` or `Lobby`.
+
+Both use the game's native row prefabs.
+
+#### Custom tab
+
+```csharp
+ui.Native.Settings.AddTab("author.my-mod", "My Mod", tab => {
+    tab.AddHeader("My Mod settings");
+    tab.AddToggle("Enable feature", true, enabled => { });
+    tab.AddSlider("Volume", 0f, 100f, 70f, value => { });
+    tab.AddDropdown("Mode", new[] { "Simple", "Advanced" }, 0, index => { });
+    tab.AddInfo("Settings in this tab are owned by my mod.");
+});
+```
+
+`SettingsTabSpec` can be used with `SettingsApi.Add(...)`; `AddTab(id, title, build)` is the direct equivalent.
+`SettingsTabHandle.Select()` selects the tab when the Settings screen exists.
+
+#### Block on a built-in page
+
+```csharp
+ui.Native.Settings.AddBlock(new SettingsBlockSpec {
+    Id = "author.my-mod.game",
+    Page = SettingsPage.Game,
+    Title = "My Mod",
+    Order = 10,
+    Build = block => {
+        block.AddInfo("These rows are added to the game's Game page.");
+        block.AddToggle("Enable feature", true, enabled => { });
+        block.AddSlider("Intensity", 0f, 10f, 5f, value => { },
+            format: "0.0", wholeNumbers: false);
+        Action reset = () => { };
+        Action apply = () => { };
+        block.AddButtons("Actions", ("Reset", reset), ("Apply", apply));
+    },
+});
+```
+
+`SettingsApi.AddBlock(page, title, order)` and `AddBlock(id, page, title, order)` are shorthand methods. A block is
+stable across Settings rebuilds and scene changes; its rows are recreated natively when needed.
+
+#### Row kinds
+
+`SettingsBlockHandle` and `SettingsTabHandle` expose the same row methods:
+
+| Method | Result |
+|---|---|
+| `AddHeader(text)` | Group header |
+| `AddToggle(label, value, changed)` | Checkbox/toggle |
+| `AddSlider(label, min, max, value, changed, format, wholeNumbers)` | Slider with value text |
+| `AddDropdown(label, options, index, changed)` | Dropdown |
+| `AddButton(label, buttonText, clicked)` | One button |
+| `AddButtons(label, params (text, clicked)[])` | Several buttons in one row |
+| `AddStepper(label, valueText, step)` | `-` / value / `+` row |
+| `AddInfo(text)` | Wrapped paragraph |
+
+Rows are stable handles (`SettingsRowHandle`). Update them without rebuilding:
+
+```csharp
+SettingsRowHandle? info = null;
+SettingsRowHandle? stepper = null;
+
+block.AddToggle("Demo", true, value => {
+    info?.SetText("Demo: " + value);
+    info?.SetEnabled(value);
+    info?.SetVisible(true);
+});
+
+info = block.AddInfo("Ready.");
+stepper = block.AddStepper("Count", () => count.ToString(), delta => count += delta);
+
+row?.SetValue(true);          // Toggle
+row?.SetValue(5f);            // Slider
+row?.SetValue(1);             // Dropdown index
+row?.SetText("New text");     // Info or Stepper
+row?.SetEnabled(false);
+row?.SetVisible(false);
+```
+
+Rows apply their initial values when attached and push changes only when you call a setter or the player interacts.
+Info and Stepper text providers are read on attach and after each step; they are not polled.
+
+### Scoreboard
+
+Scoreboard columns are added to every current and future scoreboard row. Cells are cloned from the game's own stat
+cell, so they match the board's art.
+
+```csharp
+using System.Collections.Generic;
+using GameIsland = DiceKingdoms.Game.Island;
+
+var column = ui.Native.Scoreboard.AddColumn("author.my-mod.score", "My score");
+
+column?.SetValue(island, score.ToString());
+column?.SetValues(new Dictionary<GameIsland, string> {
+    [islandA] = "12",
+    [islandB] = "7",
+});
+column?.ClearValues();
+
+column?.SetTooltip("Score from my mod");
+column?.SetIcon(myIcon);
+int attachedRows = column?.AttachedCells ?? 0;
+```
+
+Values are pushed explicitly and cached. A value set before the scoreboard exists appears when rows attach. The
+column is stable across scene changes; rows without a cached value show an empty cell.
+
+`ScoreboardColumnSpec` can be used with `ScoreboardApi.Add(...)`; it accepts `Id`, `Tooltip` and `Icon`.
+
+### Rules civilizations
+
+Rules civilizations are appended to the game's Rules dropdown. The stable `Key` is hashed into a civilization id, so
+all players in a multiplayer game see the same id.
+
+```csharp
+var civ = ui.Native.Rules.Add(new RulesCivilizationSpec {
+    Key = "author.my-mod.civ",
+    Name = "My Civilization",
+    SkinsLike = 0,
+    TechTree = () => myTechTree,
+});
+
+civ?.SetName("My Civilization MK II");
+civ?.SetTechTree(() => updatedTree);
+```
+
+`SkinsLike` accepts `0`..`4` and selects the built-in biome/visual set to borrow:
+
+| Value | Built-in civilization |
+|---|---|
+| `0` | Europe |
+| `1` | Middle East |
+| `2` | Viking |
+| `3` | Ancient |
+| `4` | Maya |
+
+`RulesApi.AddCivilization(key, name, techTree, skinsLike)` is the direct equivalent of `Add(spec)`. The handle exposes
+`Key`, `CivilizationId`, `Name` and `SkinsLike`.
+
+### Native handle lifecycle
+
+Native handles are never replaced; their attachment state changes.
+
+| State | Meaning |
+|---|---|
+| `Pending` | Waiting for a target, asset or template |
+| `Attached` | Live objects are present in the game UI |
+| `Detached` | Was attached before and is waiting to attach again |
+| `Failed` | The last attempt failed; `Status` explains why |
+| `Unsupported` | The active policy or game does not support this registration |
+| `Disposed` | Removed for good |
+
+Use `handle.IsAttached`, `handle.State` and `handle.Status` for diagnostics. `handle.Dispose()` removes an individual
+registration; disposing the owning scope removes it automatically.
+
+Native additions are add-only. UI that edits, moves or removes existing game elements is not exposed.
 
 ## Built-in demo
 
-The library can show its own test windows without installing another mod. Enable them in
-`BepInEx/config/DiceModders.UiKit.cfg`:
+The UiKit plugin includes a demo as a manual smoke test. Enable it in `BepInEx/config/DiceModders.UiKit.cfg`:
 
 ```ini
 [Demo]
@@ -153,13 +688,20 @@ Templates = PreferNative
 ```
 
 Or launch the game with `--uikit-demo`. With BepInEx ConfigurationManager installed, `[Demo] Enabled` can be toggled
-without restarting. The demo contains a scrollable widget gallery, layer probes for `Layer.Game` and `Layer.BehindGame`,
-window-ornament switching, a hammer button in the game's top bar, a **UiKit** Settings tab, a scoreboard column, and a
-Rules civilization when a game tech tree can be found.
+without restarting.
 
-Windows created before the game's UI is loaded use managed fallbacks. The demo registers its top-bar button through
-`WhenReady`. Open the demo after entering a match and press **Rebuild (re-scan native skins)** to recreate managed widgets
-with native templates. The same actions are available from code:
+The demo includes:
+
+- a scrollable widget gallery;
+- layer probes for `Layer.Game` and `Layer.BehindGame`;
+- window-ornament switching;
+- a top-bar button with ordering and interactability checks;
+- a custom Settings tab;
+- blocks on built-in Settings pages;
+- a scoreboard column;
+- a Rules civilization when a game tech tree is available.
+
+The same actions are available from code:
 
 ```csharp
 UiKit.ShowDemo();
@@ -168,465 +710,29 @@ UiKit.ToggleDemo();
 UiKit.RebuildDemo();
 ```
 
-`Widgets/Templates` accepts `PreferNative`, `ManagedOnly` or `NativeOnly`. An unknown value falls back to
-`PreferNative` and is logged.
-
-## Scopes
-
-`UiKit.CreateScope(id)` is the only entry point. A scope owns:
-
-* every managed window and widget created through `scope.Custom`;
-* every native handle created through `scope.Native.TopBar`, `Settings`, `Scoreboard` and `Rules`;
-* nothing else. Shared canvases, assets and theme belong to the runtime.
-
-Disposing a scope removes all owned objects in reverse creation order; one failing removal does not stop the rest.
-Native handles can also be disposed individually. IDs are scope-local diagnostics unless explicitly documented otherwise.
-
-## Layers
-
-| Layer | Meaning |
-|---|---|
-| `Layer.BehindGame` | Below the game UI (ambient panels, background overlays). |
-| `Layer.Game` | At the game HUD's band (the game's popups with higher sorting orders stay above it). |
-| `Layer.AboveGame` | Above the game UI. Default for custom windows. |
-
-All three are shared canvases created lazily: at most three per process, no matter how many mods or windows.
-`UiWindow.Layer(...)` can move a window at runtime; `UiWindow.SortingOrder(...)` is the per-window escape hatch.
-
-```csharp
-w.Layer(Layer.BehindGame);
-w.Layer(Layer.AboveGame);
-w.SortingOrder(10); // relative to the current layer; recalculated after a layer refresh
-```
-
-`SortingOrder` is stored as a layer-relative offset and is recalculated when the shared canvases re-read the game's
-sorting order after a scene change. `UiWindow.Layer(...)` remains safe after the window is disposed.
-
-## Windows
-
-`UiWindow` is both the builder and the handle. `CustomApi.Window` returns `null` if the scope is gone or the build callback
-fails; a failed window is disposed before returning.
-
-```csharp
-var window = _ui.Custom.Window(w => {
-    w.Title("Settings")
-     .Size(480, 360)
-     .Center()
-     .Draggable()
-     .Fullscreenable()
-     .FullscreenButton()
-     .Closable()
-     .Ornament(OrnamentStyle.BorderWithFourCorners)
-     .OnClose(() => { });
-
-    w.Body.Toggle("Enabled", true, value => { /* ... */ });
-    w.Body.Slider(0, 100, 50, value => { /* ... */ })?.Format("0");
-    w.Body.Button("Apply", Apply);
-});
-
-window?.BringToFront();
-window?.Fullscreen();
-window?.Restore();
-window?.Close();
-```
-
-Useful handle methods and properties: `Show`, `Hide`, `Toggle`, `BringToFront`, `Fullscreen`, `Restore`, `Close`,
-`Dispose`, `IsFullscreen`, `CanFullscreen`. `Fullscreenable()` enables double-click/`Fullscreen()`; `FullscreenButton()`
-also adds a managed "Full screen"/"Window" button to the title bar and enables fullscreen. The library keeps normal windows
-inside the current canvas after resolution or aspect-ratio changes; this does not resize or weight top-level windows.
-`TitleBar` is a nullable `UiContainer` (the title strip is created on demand). `Body` is a `UiContainer`; after the window
-is disposed its factory methods return `null`.
-
-`Position(x, y)` is measured from the top-left corner of the layer. `Center()` does the obvious thing.
-
-## Widgets and layout
-
-`UiWindow.Body` is a vertical `UiContainer`. Containers expose:
-
-* `Text`, `Paragraph`
-* `Button`, `IconButton` (theme icon name or caller-supplied `Sprite`)
-* `Toggle`, `Slider`, `Dropdown`, `Image`
-* `Scroll`
-* `Row`, `Column`, `Grid` (flexible columns or fixed column count)
-* `Spacer`, `Separator(height)`
-* `Spacing(horizontal, vertical)`, `Padding`, `Columns`, `CellSize`
-* `Clear`, `Remove(UiElement?)`
-
-All widgets derive from `UiElement` and can be chained with layout extensions:
-
-```csharp
-w.Body.Text("Title")?.Align(TextAlignmentOptions.Center).FillWidth();
-w.Body.Paragraph("A long description...")?.Wrap().FillWidth();
-w.Body.Button("OK", Close)?.Width(120);
-w.Body.Image(texture)?.Height(240).FillWidth();
-w.Body.IconButton(runtimeSprite, Open, "Runtime sprite")?.Fixed(32f);
-w.Body.Scroll(list => {
-    for (int i = 0; i < 100; i++) list.Text($"Row {i}");
-});
-
-var grid = w.Body.Grid(g => {
-    for (int i = 0; i < 6; i++) g.Button("Cell " + i);
-});
-grid?.Height(80f);
-grid?.Spacing(8f, 6f);
-
-w.Body.Row(row => {
-    row.Column(sidebar => { /* ... */ })?.FixedW(160f);
-    row.Column(content => { /* ... */ })?.WeightW(1f);
-})?.FixedH(240f).Spacing(10f, 0f);
-w.Body.Separator(2f);
-```
-
-`Fixed(px)` fixes both dimensions to the same size, while `Fixed(width, height)` does the same with separate values.
-`FixedW`/`Width` and `FixedH`/`Height` fix one axis. `Weight`/`WeightW`/`WeightH` give an element a proportional share of
-the free space along the main axis of a `Row`, `Column` or `UiWindow.Body`; fixed sizes are reserved first. `Fill*` is
-shorthand for weight `1`; a weight of `0` means no flexible share.
-
-`Grid()` without a column count is flexible: it keeps its `CellSize` and lets the grid decide how many cells fit. Use
-`Grid(columns, cellWidth, cellHeight, build)` (or `Columns`/`CellSize`) for a fixed grid. `Spacing(x, y)` sets the
-horizontal and vertical gaps independently; `Separator(height)` adds a horizontal line. `Clear()` deactivates children
-before destroying them, so removed widgets stop receiving input immediately.
-
-Weights do not affect top-level `UiWindow.Size(...)` — windows stay fixed — and grid cells, which keep `CellSize`.
-All layout helpers accept a possibly-null element and no-op when it is `null`, so a chain stays type-safe without an extra
-check. Widget factories return `null` when the container is disposed or the widget cannot be built.
-
-### Text
-
-* `UiContainer.Text` is one line, cut with `...` when it is too long.
-* `UiContainer.Paragraph` wraps and measures its height automatically when its width changes.
-* `UiText.Wrap()` converts a text into an auto-height paragraph; `.Value`, `.Align`, `.Color` and `.Size` are chainable.
-
-### Dropdown
-
-The dropdown uses the game's own popup when the native dropdown template is available. With `TemplatePolicy.PreferNative`
-(the default) it falls back to a managed compact button that advances to the next option on click. `Index`, `Selected`,
-`Count`, `Set`, `Options` and `Interactable` work the same in both modes.
-
-### Native widget skins
-
-`Widgets/Templates` controls how managed widgets are dressed:
-
-| Policy | Behavior |
-|---|---|
-| `PreferNative` | Clone the game's widget when its template is found; otherwise use the managed fallback. |
-| `ManagedOnly` | Never clone game widgets; always use the managed versions. |
-| `NativeOnly` | Use only game widgets. If a template is missing, the factory logs once and returns `null`. |
-
-The native skins are real clones of live game controls:
-
-* buttons from the game's label/icon buttons, including hover, pressed, disabled, cursor and sounds;
-* toggles from the boolean setting control;
-* sliders from the float setting control, including its value label;
-* dropdowns from the language setting's `TMP_Dropdown` and popup;
-* scrollbars from the game's vertical scroll views.
-
-A managed widget chooses its skin when it is created. Native templates are cached per scene and re-discovered after a
-scene change, but an already-created widget is not re-skinned. Build windows in `WhenReady` (or later) to get native skins;
-creating them during plugin `Load` normally uses the managed fallback. `WhenReady` still sees only templates available at
-the first ready UI, usually the main menu, so open match-specific windows lazily. Use the demo's **Rebuild** action or
-`UiKit.RebuildDemo()` to test after entering a match.
-
-Missing templates are logged once and never crash the UI. In `NativeOnly` mode, always null-check managed widget factory
-results:
-
-```csharp
-var button = w.Body.Button("Apply", Apply);
-button?.Width(120);
-```
-
-### Images and pointer input
-
-`UiContainer.Image(Texture)` creates a picture with `KeepAspect`, `Filter`, `Refresh`, `SetTexture`, `OnPointer` and
-`OnScroll`. `Size` reports the current canvas size; `UvRect` selects a texture region; `Tint` changes the image color.
-
-Pointer callbacks use Unity's `EventTrigger` (Il2CppInterop exposes the event-system handler "interfaces" as classes, so
-they cannot be implemented directly):
-
-```csharp
-image.OnPointer(e => {
-    if (e.Kind == UiPointerKind.Move) { /* e.Delta, e.Uv, e.Position */ }
-    if (e.Kind == UiPointerKind.Drag) { /* e.Button, e.Delta, e.Uv, e.Position */ }
-});
-```
-
-Supported kinds: `Down`, `Up`, `Click`, `Move`, `Drag`, `Enter`, `Exit`. Move is delivered while the pointer hovers the
-image; its delta is zero on the first event after entering. The library's internal pointer tracker subscribes to
-`InputSystem.onAfterUpdate` only while at least one image or managed scroll view is registered; it reads
-`Mouse.current` directly and does not use `InputAction.CallbackContext`, which Il2CppInterop cannot marshal. `OnScroll`
-takes wheel notches and is called only while the pointer is over that image; hovering an image without a scroll handler
-lets the surrounding `UiScroll` handle the wheel. This tracker is also why wheel input works over the gaps between
-custom scroll rows.
-
-## Native lifecycle
-
-All four native modules share one registration, lifecycle and state model. The library owns discovery, attachment,
-event-driven reattachment and retries; a mod registers a description and receives a stable handle.
-
-```csharp
-public abstract class NativeHandle : IDisposable {
-    public string Id { get; }
-    public NativeState State { get; }
-    public string? Status { get; }
-    public bool IsAttached { get; }
-    public bool IsDisposed { get; }
-}
-```
-
-`NativeState` has six values:
-
-| State | Meaning |
-|---|---|
-| `Pending` | Waiting for a scene, game screen, asset or template. Never attached yet. |
-| `Attached` | Live objects exist in the game's current UI. |
-| `Detached` | Attached earlier, now waiting to attach again after a scene/screen change. |
-| `Failed` | The last attach attempt failed. The library retries on the next relevant scene, screen, row or layout event; `Status` says why. |
-| `Unsupported` | The active `TemplatePolicy` or the game does not support this registration. |
-| `Disposed` | The registration was disposed and can never attach again. |
-
-`Id` is a stable diagnostic id unique inside the owning scope (Rules uses its stable key as the id). `Status` is a
-human-readable detail for the current state. A handle is stable for its whole lifetime; scene changes replace only the
-game objects behind it.
-
-`Add(...)` returns `null` only when the scope is disposed or the spec cannot be built (for example, a top-bar button
-with no icon). An unavailable target, missing template or `ManagedOnly` policy produces a handle in
-`Pending`, `Failed` or `Unsupported`; it never throws.
-
-The host is event-driven: scene changes, the game's `MainMenu`/`Interface` start, Settings screen/page events, scoreboard
-row start/destroy/island changes and coalesced one-shot canvas layout callbacks trigger discovery, attachment and layout
-refresh. There is no recurring retry/layout timer. Delegate holders are released when their Unity owner is destroyed or
-when the runtime is disposed. Scene changes invalidate templates and assets and refresh all native registrations. No mod
-needs a dispatcher or its own game hooks merely to keep native registrations attached; `WhenReady` is the only lifecycle
-callback for content readiness.
-
-Native additions are inserted into the game's own hierarchy. The player and other mods see ordinary game buttons, tabs,
-rows and option entries; the game's layout, sound and hover behavior continue to work. Native integrations require game
-templates. With `TemplatePolicy.ManagedOnly` they are marked `Unsupported`; there is no managed fallback because the
-objects are part of the game's UI. Each registration is isolated in its own guard: one failure does not stop the others.
-
-### Top bar
-
-```csharp
-var button = _ui.Native.TopBar.Add(new TopBarButtonSpec {
-    Id = "my.mod.open",
-    IconName = "hammer",
-    Tooltip = "Open my panel",
-    OnClick = TogglePanel,
-    InitiallyVisible = true,
-    InitiallyInteractable = true,
-    Order = 10,
-});
-
-button?.SetIcon("gear");
-button?.SetTooltip("My panel");
-button?.SetVisible(true);
-button?.SetInteractable(false);
-button?.SetClick(TogglePanel);
-
-var same = _ui.Native.TopBar.Get("my.mod.open");
-```
-
-`TopBarButtonSpec` fields:
-
-* `Id` — optional diagnostic id.
-* `IconName` — icon name in the shared UiKit theme. Resolved lazily.
-* `Icon` — caller-supplied sprite. Takes precedence over `IconName`; the name remains as a fallback if the sprite is lost.
-* `Tooltip`, `OnClick`, `InitiallyVisible`, `InitiallyInteractable`.
-* `Order` — lower values appear first among mod buttons. Equal values keep registration order. Mod buttons are placed
-  before the game's own top-bar buttons, from left to right in that order.
-
-`Get(id)` returns the live handle registered in this scope, or `null`. `SetInteractable(bool)` updates both the current
-native button and the state used after a scene rebuild.
-
-`AddIconButton(name, ...)` and `AddIconButton(Sprite, ...)` are convenience overloads. Both return immediately, so they
-are safe in plugin `Load` before sprites exist. `SetIcon(string)` follows the same lazy rule: the new name is cached and
-resolved on the next native refresh or layout event; if the asset is not available while the button is already attached,
-the old icon stays visible until the new one can be resolved. Passing a `null`/empty icon name is a no-op. `SetTooltip(null)`
-clears an existing tooltip.
-
-A `TopBarButtonHandle` is a clone of the game's bar button, so it keeps the native art, cursor and click sounds. `Dispose`
-removes it from the bar. A handle may be returned while `IsAttached` is still false; that is the intended lazy state, not
-an error.
-
-### Settings (add-only)
-
-Settings additions are strictly add-only: the API creates new mod tabs and appends rows to built-in pages, never edits or
-removes built-in settings.
-
-```csharp
-var tab = _ui.Native.Settings.Add(new SettingsTabSpec {
-    Id = "my.mod",
-    Title = "My Mod",
-    Build = t => {
-        t.AddHeader("My Mod options");
-        t.AddToggle("Enabled", true, value => { /* ... */ });
-        t.AddSlider("Volume", 0f, 100f, 50f, value => { /* ... */ }, "0");
-        t.AddDropdown("Mode", new[] { "Easy", "Normal", "Hard" }, 1, index => { /* ... */ });
-        t.AddButton("Apply", "Apply", Apply);
-    },
-});
-
-tab?.Select();
-```
-
-`SettingsTabSpec` fields: `Id`, `Title`, `Build`. `Build` runs synchronously once, immediately after the tab is created and
-before it attaches, so rows added there exist by the first attach. `AddTab(id, title, build)` is the direct equivalent.
-`SettingsTabHandle` exposes `Title`, `Select`, `AddHeader`, `AddToggle`, `AddSlider`, `AddDropdown`, `AddButton`,
-`AddButtons`, `AddStepper` and `AddInfo`.
-
-Each `SettingsRowHandle` caches its value and callback while the Settings screen is rebuilt on a scene change; only the
-native visual is recreated. Rows can also be added after the tab is attached, in which case their visual is built
-immediately. Row handles expose `IsAttached`, `SetValue(bool/float/int)`, `SetEnabled` and `SetVisible`. A null label is
-shown as an empty label; a dropdown with no options gets one empty entry.
-
-A tab id is scope-local. Duplicate ids return the existing live tab; a null or empty id gets a generated diagnostic id.
-A tab that exists before the Settings screen is loaded is queued and attaches later. `Select()` only acts while a live
-tab is attached.
-
-#### Built-in pages
-
-A block appends rows to one of the game's own pages without replacing the page or its native rows:
-
-```csharp
-var block = _ui.Native.Settings.AddBlock(new SettingsBlockSpec {
-    Id = "my.mod.game-page",
-    Page = SettingsPage.Game,
-    Title = "My Mod",
-    Order = 10,                       // lower first among mod blocks on this page
-    Build = b => {
-        b.AddInfo("These rows live in the game's own Game settings page.");
-        b.AddToggle("Enabled", true, value => { /* ... */ });
-        b.AddSlider("Amount", 0f, 100f, 50f, value => { /* ... */ }, "0", wholeNumbers: true);
-        b.AddDropdown("Mode", new[] { "Easy", "Normal", "Hard" }, 1, index => { /* ... */ });
-        b.AddButton("Apply", "Apply", Apply);
-        b.AddButtons("Actions", ("Reset", Reset), ("Export", Export));
-        b.AddStepper("Rows", () => _rowCount.ToString(), delta => _rowCount += delta);
-    },
-});
-```
-
-`SettingsPage` is `Video`, `Audio`, `Input`, `Game` or `Lobby`. `SettingsBlockSpec` fields are `Id`, `Page`, `Title`,
-`Order` and `Build`; `Build` runs once while the block is detached. A non-empty `Title` adds a native header row. Use
-`AddBlock(id, page, title, order)` if you prefer to add rows through the returned handle instead of a `Build` callback.
-Blocks are appended after the page's native rows in `Order` then registration order. The block handle and its rows survive
-Settings rebuilds and scene changes.
-
-`SettingsBlockHandle` has the same row factories as `SettingsTabHandle`: `AddHeader`, `AddToggle`, `AddSlider`,
-`AddDropdown`, `AddButton`, `AddButtons`, `AddStepper` and `AddInfo`. Sliders accept `wholeNumbers`; `AddButtons` creates
-several fitted buttons in one row; `AddStepper` calls your step callback with `-1`/`+1` and re-reads its text provider
-after each click. `AddInfo` returns a stable row whose text can be updated with `SetText`.
-
-Values are never polled live by default. Each row stores its initial value and updates it when the player interacts. If
-your value changes elsewhere, push it explicitly with `SettingsRowHandle.SetValue(bool/float/int)` or, for Info/Stepper
-text, `SetText`. Row handles also expose `IsAttached`, `SetEnabled` and `SetVisible`.
-
-When a built-in page with mod rows needs it, the library applies narrow internal chrome fixes: a bottom spacer, a wheel
-catcher and faster scroll speed, a Close-button shift when the scrollbar appears, viewport clipping above Close, and a
-one-time Lobby scroll fit. These are removed when the last block on the page is disposed; they are not public editing API.
-
-### Scoreboard columns
-
-```csharp
-using GameIsland = DiceKingdoms.Game.Island;
-
-var column = _ui.Native.Scoreboard.Add(new ScoreboardColumnSpec {
-    Id = "my.mod.score",
-    Tooltip = "My score",
-});
-
-// Any time your data changes:
-column?.SetValue(island, ValueFor(island));
-```
-
-`ScoreboardColumnSpec` fields: `Id`, `Tooltip`, `Icon`. `AddColumn(id, tooltip, icon)` is the direct equivalent. The
-column is cloned from the game's own stat cell, so it matches the row's art, font and tooltip behavior. It is appended to
-every current and future scoreboard row through the library's row-start hook.
-
-Values are pushed explicitly; the library never polls a callback. The cache is keyed by island:
-
-* `SetValue(GameIsland? island, string? value)` — set one value. A null value displays an empty cell.
-* `SetValues(IEnumerable<KeyValuePair<GameIsland, string>>? values)` — replace the whole cache. Rows without an entry are
-  empty.
-* `ClearValues()` — clear the cache and every attached cell.
-
-Values are cached and re-applied when a row is rebuilt or the scene changes, so a mod can set values before the
-scoreboard exists and they appear when it does. `AttachedCells` reports how many live rows currently carry the column.
-`SetTooltip(...)` and `SetIcon(...)` update existing cells; `SetIcon(null)` hides the donor icon. Tooltip and icon are
-stored and reused on new rows. The column handle is a `NativeHandle`: it reattaches across scenes and is removed when the
-scope (or the handle) is disposed.
-
-### Rules civilizations
-
-```csharp
-var civ = _ui.Native.Rules.Add(new RulesCivilizationSpec {
-    Key = "my.mod.civ",              // stable across players and saves
-    Name = "My Civilization",
-    TechTree = () => _myTechTree,    // required unless the game already knows the civ
-    SkinsLike = 0,                   // borrowed biome/visuals: 0 Europe, 1 Middle East, 2 Viking, 3 Ancient, 4 Maya
-});
-```
-
-`RulesCivilizationSpec` fields: `Key` (required), `Name` (required), `TechTree`, `SkinsLike`. `AddCivilization(key, name,
-techTree, skinsLike)` is the direct equivalent. The library appends the civilization to the Rules drop-down and keeps the
-option in sync across scene/screen rebuilds.
-
-The numeric `RulesCivilizationHandle.CivilizationId` is derived from `Key` with a stable hash and starts above the
-built-in ids. Use `CivilizationId` in saves and multiplayer state; use `Key` as the diagnostic `Id`. The same key always
-produces the same number on every machine. Keys are globally unique while registered: registering the same key from
-another scope returns `null`.
-
-The library installs the game hooks needed by a custom civilization:
-
-* `Technologies.TechTree(civilization)` is answered by the registered `TechTree` provider. Without a provider, the game's
-  own lookup can throw for an unknown civilization, so provide one unless the game knows the id.
-* `PlayerSkins.Civilization` borrows the built-in civilization selected by `SkinsLike`, then stores the real custom id.
-
-`SetName(string)` updates the drop-down label while keeping the stable id. `SetTechTree(provider)` replaces the provider.
-A civilization registered before the Rules screen exists is `Pending` and attaches when the screen appears. Disposing the
-handle (or its scope) permanently removes the option and its matching value. While the handle is alive, a Rules-screen
-rebuild detaches the option from the old screen and adds it to the new one automatically.
-
-Do not rely on the exact hash algorithm as a public format; store and compare `CivilizationId` from the handle, or map it
-back to your `Key`.
-
-## Theme
-
-`scope.Custom.Theme` is the shared read-only view of the game's look:
-
-```csharp
-var theme = _ui.Custom.Theme;
-
-var font = theme.Font;                 // nullable
-var material = theme.FontMaterial;     // nullable
-var hammer = theme.Icon("hammer");     // nullable
-var frame = theme.Ornament(OrnamentStyle.Classic);
-var sprite = theme.Sprite("Background-3");
-```
-
-Asset scanning is done once by the runtime and invalidated on scene changes. Mods never scan assets. Theme lookups never
-throw and return `null` for not-yet-loaded or missing assets; `SpriteNames()` returns an empty sequence rather than
-throwing.
-
-## Strings, threads and game updates
-
-* All labels are plain strings. The library does not wrap them in a localization type; mods that need localized text
-  should pass the already-localized result.
-* Everything is main-thread-only. Callbacks run on Unity's main thread; native lifecycle and layout work is driven by game
-  events and one-shot canvas-layout callbacks, not a per-frame pump.
-* Scoreboard data is pushed by the mod (`SetValue`/`SetValues`/`ClearValues`); Rules tech-tree and skin lookup are answered
-  on demand by the library's hooks. There are no per-frame mod callbacks.
-* There are no per-match, per-tab or per-screen callbacks. `WhenReady` fires once, and native handles reattach themselves.
-  If you need a game event, use your own hook, but that hook has no UiKit readiness guarantee.
-* Native game hooks are best-effort. If a future game update changes a signature, the library logs the failure and keeps
-  running; native integrations may remain `Pending`/`Failed` instead of crashing the game.
-
-## What is not here yet
-
-* Editing or removing existing game UI elements. Native additions are add-only for now; the staging and cloning
-  primitives are ready for future editing support.
-* Automatic reskinning of managed windows that were created before game templates loaded. Recreate the window or use the
-  demo's rebuild action.
-* A managed fallback for native integrations. `ManagedOnly` produces `Unsupported` native handles.
-* A localization wrapper for strings.
-* Automated in-game tests; the built-in demo is the manual smoke test. Native hook behavior, scoreboard layout,
-  Settings rebuilds and Rules selection still need a real-match pass after game updates.
+After entering a match, use **Rebuild** in the demo to recreate managed widgets with native templates. The demo is not
+required at runtime and can be disabled.
+
+## Contracts and limitations
+
+- **Main thread only.** UiKit does not provide a dispatcher.
+- **No per-screen callbacks.** `WhenReady` fires once. Native handles manage their own attachment.
+- **Managed factories may return `null`.** Check the result or use `?.`.
+- **Callback failures are isolated.** UiKit logs them and keeps the game loop running.
+- **Native integration is add-only.**
+- **No automatic reskinning.** Managed windows created before game templates are available use managed fallbacks;
+  recreate them or use the demo rebuild action.
+- **No managed fallback for native integrations.** Under `ManagedOnly`, native handles become `Unsupported`.
+- **No localization wrapper.** Pass already-localized strings.
+- **No automated in-game tests.** The demo and a real-match pass are the current validation.
+
+## Documentation
+
+README is the user-facing guide. Implementation and contributor details live separately:
+
+- [Documentation index](docs/README.md)
+- [Architecture](docs/ARCHITECTURE.md) — runtime, scopes, events, assets and lifecycle internals
+- [Native integrations](docs/NATIVE.md) — Harmony hooks, native state, Settings/scoreboard/Rules internals
+- [Development](docs/DEVELOPMENT.md) — build, demo checks, logs, code map and release steps
+
+For build and release instructions, start with [Development](docs/DEVELOPMENT.md).
