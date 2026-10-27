@@ -1,5 +1,7 @@
 # DiceModders UiKit
 
+![UiKit Icon](https://raw.githubusercontent.com/DiceModders/UiKit/icon.png)
+
 A shared UI toolkit for Dice Kingdoms mods. UiKit owns the global UI runtime, game skins, native hooks and
 lifecycle, so a mod can build windows, widgets and native-looking additions without creating its own canvases or
 Harmony patches.
