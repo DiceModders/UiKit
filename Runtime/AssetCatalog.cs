@@ -8,7 +8,8 @@ namespace DiceModders.UiKit;
 
 /// <summary>
 /// One cache of the game's sprites, materials and fonts for the whole process. Mods never scan assets themselves.
-/// Lookups are lazy; a missing or destroyed asset triggers at most one rescan every few seconds, and only when something asks for it.
+/// Event-driven: built on the first lookup after a scene loads (the runtime calls <see cref="Invalidate"/> on every scene load). A missing or destroyed
+/// asset may trigger one more scan in that scene, never more; nothing runs on a timer.
 /// </summary>
 internal sealed class AssetCatalog {
     public static readonly Color DefaultTextColor = new(0.969f, 0.940f, 0.893f, 1f);
@@ -18,7 +19,7 @@ internal sealed class AssetCatalog {
     private readonly Dictionary<string, TMP_FontAsset> _fonts = new();
 
     private bool _scanned;
-    private float _nextRescan;
+    private bool _rescannedThisScene;
     private TMP_FontAsset? _font;
     private Material? _fontMaterial;
     private float _nextFontDonorScan;
@@ -28,13 +29,19 @@ internal sealed class AssetCatalog {
         _materials.Clear();
         _fonts.Clear();
         _scanned = false;
-        _nextRescan = 0f;
+        _rescannedThisScene = false;
         _font = null;
         _fontMaterial = null;
         _nextFontDonorScan = 0f;
     }
 
     private void Scan() {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        try { ScanNow(); }
+        finally { if (watch.ElapsedMilliseconds >= 15) UiLog.Warn("slow: asset catalog scan took " + watch.ElapsedMilliseconds + " ms (" + _sprites.Count + " sprites)"); }
+    }
+
+    private void ScanNow() {
         _sprites.Clear();
         _materials.Clear();
         _fonts.Clear();
@@ -52,7 +59,6 @@ internal sealed class AssetCatalog {
                 _fonts.TryAdd(f.name, f);
 
         _scanned = true;
-        _nextRescan = Time.realtimeSinceStartup + 3f;
     }
 
     private void EnsureScanned() {
@@ -64,7 +70,10 @@ internal sealed class AssetCatalog {
         EnsureScanned();
         if (map.TryGetValue(name, out var found) && found != null) return found;
 
-        if (Time.realtimeSinceStartup < _nextRescan) return null;
+        // Event-driven: the catalog is rebuilt when a scene loads (Invalidate). A name that is still missing may belong to an asset the scene
+        // loaded after the first scan, so ONE extra scan is allowed per scene; after that a missing name stays missing until the next scene.
+        if (_rescannedThisScene) return null;
+        _rescannedThisScene = true;
         Scan();
         return map.TryGetValue(name, out found) && found != null ? found : null;
     }
