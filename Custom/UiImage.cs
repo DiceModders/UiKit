@@ -116,6 +116,17 @@ public sealed class UiImage : UiElement {
         return this;
     }
 
+    /// <summary>Called with the picture's new size (canvas units) after a layout pass changed it, and once when it first gets a size.</summary>
+    public UiImage OnResize(Action<Vector2>? handler) {
+        if (!IsAlive || _image == null) return this;
+        UiGuard.Run("image.resize", () => {
+            var go = _image.gameObject;
+            var watcher = go.GetComponent<SizeWatcher>() ?? go.AddComponent<SizeWatcher>();
+            watcher.Bind(handler);
+        });
+        return this;
+    }
+
     public UiImage OnScroll(Action<float>? handler) {
         if (!IsAlive) return this;
         UiGuard.Run("image.scroll", () => PointerRegistry.SetScroll(_receiver, handler));

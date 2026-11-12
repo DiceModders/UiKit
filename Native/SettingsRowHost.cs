@@ -67,7 +67,7 @@ internal sealed class SettingsRowHost {
         if (row.Kind == SettingsRowKind.Header) return BuildHeader(row);
 
         var entryGo = NewEntry(row, row.Kind == SettingsRowKind.Info ? string.Empty : row.Label,
-            row.Kind != SettingsRowKind.Info);
+            row.Kind is not (SettingsRowKind.Info or SettingsRowKind.Key));   // key rows keep the game's own label width
         if (entryGo == null) return null;
 
         RectTransform? content = null;
@@ -103,6 +103,9 @@ internal sealed class SettingsRowHost {
                 case SettingsRowKind.Info:
                     BuildInfo(row, entryGo, content, view);
                     break;
+                case SettingsRowKind.Key:
+                    BuildKey(row, content, view);
+                    break;
             }
 
             return view;
@@ -134,7 +137,7 @@ internal sealed class SettingsRowHost {
         GameObject? go = null;
         try {
             go = UnityEngine.Object.Instantiate(HeaderPrefab.gameObject, Staging.Root);
-            go.name = "DM Settings Header";
+            go.name = SettingsHeaderAlign.HeaderName;   // placed off the label column after layout, see SettingsHeaderAlign
             NativeButton.StripForeign(go);
             DestroyLabel(go);
             SetText(go, row.Label);
@@ -291,6 +294,20 @@ internal sealed class SettingsRowHost {
             UiLog.OnceError("settings:no-button", "native button template is unavailable");
             throw new InvalidOperationException("native button template is unavailable");
         }
+    }
+
+    private void BuildKey(SettingsRowHandle row, RectTransform content, SettingsRowView view) {
+        // exactly where the game puts its own key widget: straight into the entry's content holder, with the prefab's own layout
+        var key = SkinPolicy.TryNative("settings key", () =>
+            NativeKeyField.Create(content, row.ReadText(), () => {
+                try { row.Clicked?.Invoke(); }
+                catch (Exception e) { UiGuard.Report("settings.key", e, _scope.Id); }
+            }));
+        if (key == null) {
+            UiLog.OnceError("settings:no-key", "native key template is unavailable");
+            throw new InvalidOperationException("native key template is unavailable");
+        }
+        view.Key = key;
     }
 
     private void BuildStepper(SettingsRowHandle row, RectTransform content, SettingsRowView view) {

@@ -10,8 +10,10 @@ namespace DiceModders.UiKit.Native;
 /// return false and nothing opens.
 /// </summary>
 public sealed class DialogsApi {
-    private const string DefaultIcon = "{o.question-mark}";
     private readonly UiScope _scope;
+
+    /// <summary>Pass as <c>icon</c> for a sharp warning sign (drawn by UiKit; the game has no warning icon of its own).</summary>
+    public const string WarningIcon = "uikit:warning";
 
     internal DialogsApi(UiScope scope) => _scope = scope;
 
@@ -28,8 +30,9 @@ public sealed class DialogsApi {
         return UiGuard.Value("dialogs.confirm", () => {
             var modal = Find();
             if (modal == null) return false;
-            modal.OpenConfirm(GameTextFactory.Plain(icon ?? DefaultIcon), GameTextFactory.Plain(text),
+            modal.OpenConfirm(Icon(icon), GameTextFactory.Plain(text),
                 Wrap(modal, onCancel, "dialogs.cancel"), Wrap(modal, onConfirm, "dialogs.confirm-click"), dontShowAgainId);
+            ShowPicture(modal, icon);
             return true;
         }, false, _scope.Id);
     }
@@ -40,8 +43,9 @@ public sealed class DialogsApi {
         return UiGuard.Value("dialogs.info", () => {
             var modal = Find();
             if (modal == null) return false;
-            modal.OpenInformation(GameTextFactory.Plain(icon ?? DefaultIcon), GameTextFactory.Plain(text),
+            modal.OpenInformation(Icon(icon), GameTextFactory.Plain(text),
                 Wrap(modal, onClose, "dialogs.close"), dontShowAgainId);
+            ShowPicture(modal, icon);
             return true;
         }, false, _scope.Id);
     }
@@ -49,11 +53,21 @@ public sealed class DialogsApi {
     /// <summary>The game's callbacks hold our delegate; it is kept alive with the dialog object and does nothing once the scope is disposed.</summary>
     private Il2CppSystem.Action? Wrap(GameConfirmModal modal, Action? callback, string operation) {
         var scope = _scope;
-        Action safe = () => { if (scope.IsAlive) UiGuard.Callback(operation, callback); };
+        Action safe = () => {
+            DialogIcons.Show(modal.iconLabel, null);     // the game reuses the dialog: our picture must not stay for its own questions
+            if (scope.IsAlive) UiGuard.Callback(operation, callback);
+        };
         var native = Il2CppDelegates.ToIl2CppAction(safe);
         Il2CppDelegates.Hold(modal, new object?[] { safe, native });
         return native;
     }
+
+    /// <summary>No icon given: the game's own empty icon, like its Back to menu dialog (a text icon is drawn as a scaled-up glyph and looks blurry).</summary>
+    private static DiceKingdoms.Interface.StructuredText Icon(string? icon) =>
+        string.IsNullOrEmpty(icon) || icon == WarningIcon ? DiceKingdoms.Interface.StructuredText.EMPTY : GameTextFactory.Plain(icon);
+
+    private static void ShowPicture(GameConfirmModal modal, string? icon) =>
+        UiGuard.Run("dialogs.icon", () => DialogIcons.Show(modal.iconLabel, icon == WarningIcon ? DialogIcons.Warning : null));
 
     /// <summary>The dialog of the loaded scene (it may be inactive until opened).</summary>
     private static GameConfirmModal? Find() {

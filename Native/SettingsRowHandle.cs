@@ -14,6 +14,7 @@ internal enum SettingsRowKind {
     Buttons,
     Stepper,
     Info,
+    Key,
 }
 
 internal readonly struct SettingsButtonDefinition {
@@ -122,9 +123,28 @@ public sealed class SettingsRowHandle {
 
     /// <summary>Updates the displayed text of an Info or Stepper row. The stepper's value provider still wins on its next refresh.</summary>
     public SettingsRowHandle SetText(string? text) {
-        if (Kind is not (SettingsRowKind.Info or SettingsRowKind.Stepper)) return this;
+        if (Kind is not (SettingsRowKind.Info or SettingsRowKind.Stepper or SettingsRowKind.Key)) return this;
         Text = text ?? string.Empty;
         UiGuard.Run("settings.row.text", () => View?.SetText(Text), _ownerId);
+        return this;
+    }
+
+    /// <summary>
+    /// Changes the caption of a Button row's button, or of button <paramref name="index"/> of a Buttons row (for example a key binding that shows the
+    /// current key). Other row kinds are left unchanged.
+    /// </summary>
+    public SettingsRowHandle SetButtonText(string? text, int index = 0) {
+        string caption = string.IsNullOrWhiteSpace(text) ? "OK" : text!;
+        if (Kind == SettingsRowKind.Button) {
+            ButtonText = caption;
+            UiGuard.Run("settings.row.button", () => View?.Button?.SetText(caption), _ownerId);
+        }
+        else if (Kind == SettingsRowKind.Buttons && index >= 0 && index < Buttons.Count) {
+            Buttons[index] = new SettingsButtonDefinition(caption, Buttons[index].Clicked);
+            UiGuard.Run("settings.row.button", () => {
+                if (View != null && index < View.Buttons.Count) View.Buttons[index].SetText(caption);
+            }, _ownerId);
+        }
         return this;
     }
 

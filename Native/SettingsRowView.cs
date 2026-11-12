@@ -13,6 +13,7 @@ internal sealed class SettingsRowView {
     public NativeSlider? Slider;
     public NativeDropdown? Dropdown;
     public NativeButton? Button;
+    public NativeKeyField? Key;
     public TMP_Text? Text;
     public AutoHeightText? AutoHeight;
     public List<NativeButton> Buttons = new();
@@ -35,6 +36,7 @@ internal sealed class SettingsRowView {
 
     public void SetText(string? text) {
         if (Text != null) Text.text = text ?? string.Empty;
+        Key?.SetText(text);
         AutoHeight?.Refresh();
     }
 
@@ -51,6 +53,7 @@ internal sealed class SettingsRowView {
         Slider = null;
         Dropdown = null;
         Button = null;
+        Key = null;
         Text = null;
         AutoHeight = null;
         Buttons.Clear();

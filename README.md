@@ -211,7 +211,7 @@ managed widgets that should use native skins, build them from `WhenReady` or lat
 | `UiKit` | `CreateScope`, demo helpers, `IsInitialized`, `IsDemoVisible` |
 | `UiScope` | `Id`, `Custom`, `Native`, `WhenReady`, `Dispose`, `IsDisposed` |
 | `CustomApi` | `Window`, `Theme` |
-| `NativeApi` | `TopBar`, `Settings`, `Scoreboard`, `Rules` |
+| `NativeApi` | `TopBar`, `Settings`, `Scoreboard`, `Rules`, `Dialogs` |
 | `UiElement` | Shared base: `Root`, `IsAlive`, `Dispose` |
 
 ### Native handles
@@ -269,7 +269,7 @@ var window = scope.Custom.Window(w => {
 | `Body` | `UiContainer` for window content |
 | `TitleBar` | Optional `UiContainer?` for title-bar buttons/content |
 | `Title`, `Size`, `Position`, `Center` | Basic window layout |
-| `Layer` | `Layer.BehindGame`, `Layer.Game` or `Layer.AboveGame` |
+| `Layer` | `Layer.BehindGame`, `Layer.Game` (camera space, sorted with the game's HUD) or `Layer.AboveGame` (screen overlay over everything; steady while the camera moves) |
 | `SortingOrder` | Extra order within the selected layer |
 | `Draggable`, `Closable` | Enable dragging and the close button |
 | `Fullscreenable`, `FullscreenButton` | Allow fullscreen and optionally add the built-in toggle |
@@ -428,7 +428,15 @@ picture?.OnPointer(e => {
 picture?.OnScroll(notches => {
     // Positive values scroll up; the library normalises wheel notches.
 });
+
+picture?.OnResize(size => {
+    // The picture's new size in canvas units, after the layout pass that changed it (and once when it first gets one).
+});
 ```
+
+For a picture that must stay sharp at any size (a map), draw the texture at the picture's size in screen pixels (size times the root
+canvas's `scaleFactor`), call `KeepAspect(false)`, use point filtering and redraw from `OnResize`. A texture stretched by an uneven factor
+resamples differently with every sub-pixel move and looks noisy.
 
 Pointer kinds: `Down`, `Up`, `Click`, `Move`, `Drag`, `Enter`, `Exit`.
 
@@ -645,6 +653,20 @@ entry?.Dispose();   // removes the option again
 The number must be above the built-in civilizations (`0`..`4`). Selecting an option for a number that nothing else has
 registered makes the game fail when it looks up that civilization, so only add entries for civilizations that exist.
 The handle exposes `CivilizationId` and `Name`.
+
+### Dialogs
+
+`Dialogs.Confirm` and `Dialogs.Info` open the game's own yes/no dialog and information box. They work on the match screen
+and return `false` where the dialog does not exist.
+
+```csharp
+bool shown = ui.Native.Dialogs.Confirm("Use the experimental size?", onConfirm: Accept, onCancel: Revert,
+                                       icon: DialogsApi.WarningIcon);
+```
+
+`icon` is `null` (no icon, like the game's own questions), `DialogsApi.WarningIcon` (a sharp warning sign drawn by UiKit and
+removed again when the dialog closes) or a text icon token such as `{o.question-mark}` (a small glyph scaled up: blurry).
+
 ### Native handle lifecycle
 
 Native handles are never replaced; their attachment state changes.

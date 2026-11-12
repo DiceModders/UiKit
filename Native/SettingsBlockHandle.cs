@@ -118,6 +118,16 @@ public sealed class SettingsBlockHandle : NativeHandle {
             row.IntChanged = step;
         });
 
+    /// <summary>
+    /// A key binding row with the game's own key box (Settings > Input). <paramref name="clicked"/> runs when the box is clicked (start capturing a key
+    /// there); change the shown key with <see cref="SettingsRowHandle.SetText"/>.
+    /// </summary>
+    public SettingsRowHandle? AddKey(string? label, string? keyText, Action? clicked)
+        => AddRow(SettingsRowKind.Key, label, row => {
+            row.Text = keyText ?? string.Empty;
+            row.Clicked = clicked;
+        });
+
     /// <summary>A wrapped paragraph. Use <see cref="SettingsRowHandle.SetText"/> to change it later.</summary>
     public SettingsRowHandle? AddInfo(string? text)
         => AddRow(SettingsRowKind.Info, null, row => row.Text = text ?? string.Empty);

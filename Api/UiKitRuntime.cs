@@ -231,6 +231,7 @@ internal sealed class UiKitRuntime {
         Register<PointerReceiver>();
         Register<AutoHeightText>();
         Register<WidthWatcher>();
+        Register<SizeWatcher>();
         Register<ScrollPin>();
         Register<CanvasLayoutWatcher>();
         Register<DelegateLifetime>();

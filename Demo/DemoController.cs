@@ -291,6 +291,7 @@ internal sealed class DemoController {
     private void BuildDemoSettings() {
         var scope = _scope;
         if (scope == null) return;
+        int tabCount = 3;
         scope.Native.Settings.AddTab("uikit.demo", "UiKit", tab => {
             tab.AddHeader("UiKit native settings");
             tab.AddToggle("Demo toggle", true, value => UiLog.Info("demo settings toggle: " + value));
@@ -299,7 +300,7 @@ internal sealed class DemoController {
                             index => UiLog.Info("demo settings dropdown: " + index));
             tab.AddButton("Demo button", "Click", () => UiLog.Info("demo settings button clicked"));
             tab.AddInfo("Info rows wrap and can be updated through SetText.");
-            tab.AddStepper("Stepper", () => "3", delta => UiLog.Info("demo settings step: " + delta));
+            tab.AddStepper("Stepper", () => tabCount.ToString(), delta => tabCount += delta);
             tab.AddButtons("Buttons", ("One", () => UiLog.Info("demo settings buttons: one")),
                 ("Two", () => UiLog.Info("demo settings buttons: two")));
         });

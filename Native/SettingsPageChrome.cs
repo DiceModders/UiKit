@@ -67,10 +67,9 @@ internal static class SettingsPageChrome {
         GameSettingSet? active = null;
         for (int i = 0; i < Active.Count; i++) {
             var candidate = Active[i];
-            if (candidate != null && candidate.gameObject.activeInHierarchy) {
-                active = candidate;
-                break;
-            }
+            if (candidate == null || !candidate.gameObject.activeInHierarchy) continue;
+            UiGuard.Run("settings.headers", () => SettingsHeaderAlign.Apply(candidate), "uikit");
+            active ??= candidate;
         }
 
         if (active == null) {
