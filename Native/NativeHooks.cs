@@ -44,6 +44,8 @@ internal static class NativeHooks {
             TryPatch(harmony, typeof(ScoreboardStartPatch), "scoreboard start");
             TryPatch(harmony, typeof(ScoreboardPopulatePatch), "scoreboard populate");
             TryPatch(harmony, typeof(ScoreboardEnablePatch), "scoreboard enable");
+            TryPatch(harmony, typeof(DialogOpenPatch), "dialog open");
+            TryPatch(harmony, typeof(DialogClosePatch), "dialog close");
 
             UiLog.Info("native game hooks installed");
         }
@@ -79,8 +81,20 @@ internal static class NativeHooks {
             runtime.NativeUi.Refresh();
             runtime.TryMarkUiReady();
             runtime.RequestReadyProbe();
+            // the HUD of this screen exists now (at sceneLoaded it may still have been the previous scene's or inactive): bind the layers to it
+            LayoutOnce.Request(() => { if (_runtime != null) UiGuard.Run("layers.ui-start", _runtime.Layers.Refresh, "runtime"); });
         }
         catch (Exception e) { UiLog.OnceError("game:started", "game UI start hook failed: " + e); }
+    }
+
+    /// <summary>The game's dialog opened or closed (ours or its own): the AboveGame layer is a screen overlay and would cover it.</summary>
+    internal static void DialogChanged(DiceKingdoms.Interface.ConfirmModal? modal) {
+        try {
+            var runtime = _runtime;
+            if (runtime == null || modal == null) return;
+            runtime.Layers.SetDialogOpen(modal.Opened);
+        }
+        catch (Exception e) { UiLog.OnceError("game:dialog", "dialog hook failed: " + e.Message); }
     }
 
     internal static void RowStarted(GameScoreboardRow? row) {
@@ -183,6 +197,18 @@ internal static class MainMenuStartPatch {
 internal static class InterfaceStartPatch {
     [HarmonyPostfix]
     public static void Postfix() => NativeHooks.GameUiStarted();
+}
+
+[HarmonyPatch(typeof(DiceKingdoms.Interface.ConfirmModal), "Open")]
+internal static class DialogOpenPatch {
+    [HarmonyPostfix]
+    public static void Postfix(DiceKingdoms.Interface.ConfirmModal __instance) => NativeHooks.DialogChanged(__instance);
+}
+
+[HarmonyPatch(typeof(DiceKingdoms.Interface.ConfirmModal), "Close")]
+internal static class DialogClosePatch {
+    [HarmonyPostfix]
+    public static void Postfix(DiceKingdoms.Interface.ConfirmModal __instance) => NativeHooks.DialogChanged(__instance);
 }
 
 [HarmonyPatch(typeof(GameScoreboardRow), "Island", MethodType.Setter)]

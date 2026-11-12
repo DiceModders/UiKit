@@ -17,7 +17,8 @@ namespace DiceModders.UiKit.Native;
 internal static class SettingsHeaderAlign {
     internal const string HeaderName = "DM Settings Header";
     private const float RightReserve = 24f;
-    private static readonly Dictionary<IntPtr, Vector4> Original = new();
+    // the template's margin of each title; the instance id guards against a later object at the same native address
+    private static readonly Dictionary<IntPtr, (int id, Vector4 margin)> Original = new();
 
     public static void Apply(GameSettingSet? set) {
         var holder = set != null ? set.holder : null;
@@ -63,10 +64,10 @@ internal static class SettingsHeaderAlign {
         float s = rt.lossyScale.x / Mathf.Max(1e-6f, holder.lossyScale.x);
         if (s <= 0f) return;
 
-        if (!Original.TryGetValue(title.Pointer, out var m0)) {
-            m0 = title.margin;
-            Original[title.Pointer] = m0;
-        }
+        int id = title.GetInstanceID();
+        Vector4 m0;
+        if (Original.TryGetValue(title.Pointer, out var known) && known.id == id) m0 = known.margin;
+        else Original[title.Pointer] = (id, m0 = title.margin);
 
         float text = title.textBounds.size.x * s;
         if (text <= 1f) {

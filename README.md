@@ -667,6 +667,12 @@ bool shown = ui.Native.Dialogs.Confirm("Use the experimental size?", onConfirm: 
 `icon` is `null` (no icon, like the game's own questions), `DialogsApi.WarningIcon` (a sharp warning sign drawn by UiKit and
 removed again when the dialog closes) or a text icon token such as `{o.question-mark}` (a small glyph scaled up: blurry).
 
+* The callbacks run just after the button press (after the frame's layout), not inside it: the game closes its dialog only after it has called the
+  button's callback, so a dialog opened from a callback would otherwise be closed at once. Opening another dialog from `onConfirm` is safe.
+* With `dontShowAgainId` ticked earlier the game does not open the dialog and confirms at once; no picture is shown then.
+* While any game dialog is open (ours or the game's own, e.g. *Back to menu*), the `AboveGame` layer is hidden: it is a screen overlay and would
+  cover the dialog, whose buttons are the only input the game accepts then. It shows again when the dialog closes.
+
 ### Native handle lifecycle
 
 Native handles are never replaced; their attachment state changes.
