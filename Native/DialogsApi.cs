@@ -32,7 +32,7 @@ public sealed class DialogsApi {
             if (modal == null) return false;
             modal.OpenConfirm(Icon(icon), GameTextFactory.Plain(text),
                 Wrap(modal, onCancel, "dialogs.cancel"), Wrap(modal, onConfirm, "dialogs.confirm-click"), dontShowAgainId);
-            ShowPicture(modal, icon);
+            if (modal.Opened) ShowPicture(modal, icon);   // "don't show again" ticked: the game confirmed without opening
             return true;
         }, false, _scope.Id);
     }
@@ -45,17 +45,23 @@ public sealed class DialogsApi {
             if (modal == null) return false;
             modal.OpenInformation(Icon(icon), GameTextFactory.Plain(text),
                 Wrap(modal, onClose, "dialogs.close"), dontShowAgainId);
-            ShowPicture(modal, icon);
+            if (modal.Opened) ShowPicture(modal, icon);
             return true;
         }, false, _scope.Id);
     }
 
-    /// <summary>The game's callbacks hold our delegate; it is kept alive with the dialog object and does nothing once the scope is disposed.</summary>
+    /// <summary>
+    /// The game's callbacks hold our delegate; it is kept alive with the dialog object and does nothing once the scope is disposed.
+    /// The game calls a button's callback BEFORE it closes the dialog, so the mod's callback runs a moment later (after this frame's layout): a dialog
+    /// opened from it would otherwise be closed at once by the game, and the first dialog's cancel would run.
+    /// </summary>
     private Il2CppSystem.Action? Wrap(GameConfirmModal modal, Action? callback, string operation) {
         var scope = _scope;
         Action safe = () => {
             DialogIcons.Show(modal.iconLabel, null);     // the game reuses the dialog: our picture must not stay for its own questions
-            if (scope.IsAlive) UiGuard.Callback(operation, callback);
+            if (!scope.IsAlive || callback == null) return;
+            if (!LayoutOnce.Request(() => { if (scope.IsAlive) UiGuard.Callback(operation, callback); }))
+                UiGuard.Callback(operation, callback);   // UiKit shutting down: run it now
         };
         var native = Il2CppDelegates.ToIl2CppAction(safe);
         Il2CppDelegates.Hold(modal, new object?[] { safe, native });
@@ -69,10 +75,14 @@ public sealed class DialogsApi {
     private static void ShowPicture(GameConfirmModal modal, string? icon) =>
         UiGuard.Run("dialogs.icon", () => DialogIcons.Show(modal.iconLabel, icon == WarningIcon ? DialogIcons.Warning : null));
 
-    /// <summary>The dialog of the loaded scene (it may be inactive until opened).</summary>
+    private static GameConfirmModal? _found;
+
+    /// <summary>The dialog of the loaded scene (it may be inactive until opened). Remembered after the first search; searched again only when that dialog is gone (scene change).</summary>
     private static GameConfirmModal? Find() {
+        try { if (_found != null && _found.gameObject.scene.IsValid()) return _found; } catch { }
+        _found = null;
         foreach (var o in Resources.FindObjectsOfTypeAll<GameConfirmModal>())
-            if (o != null && o.gameObject.scene.IsValid()) return o;
+            if (o != null && o.gameObject.scene.IsValid()) return _found = o;
         return null;
     }
 }

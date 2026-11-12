@@ -82,6 +82,18 @@ internal sealed class LayerCanvases : IDisposable {
 
     public void Invalidate() => Refresh();
 
+    private bool _dialogOpen;
+
+    /// <summary>
+    /// While the game's dialog is open the AboveGame layer is hidden: it is a screen overlay and would draw over the dialog, and the game has
+    /// switched its input off, so the player could not reach the dialog's buttons behind a window. Shown again when the dialog closes or the scene changes.
+    /// </summary>
+    internal void SetDialogOpen(bool open) {
+        if (open == _dialogOpen) return;
+        _dialogOpen = open;
+        if (_above != null) _above.enabled = !open;
+    }
+
     private void Ensure() {
         if (_initialized) return;
 

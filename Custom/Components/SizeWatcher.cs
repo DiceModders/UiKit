@@ -26,8 +26,7 @@ internal sealed class SizeWatcher : MonoBehaviour {
 
     private void Queue() {
         if (_queued || _changed == null) return;
-        _queued = true;
-        LayoutOnce.Request(Report);
+        _queued = LayoutOnce.Request(Report);   // not queued (shutting down): tried again on the next change
     }
 
     private void Report() {
