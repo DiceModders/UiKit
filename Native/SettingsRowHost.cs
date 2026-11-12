@@ -19,6 +19,7 @@ internal sealed class SettingsRowHost {
     private const float RowSpacing = 6f;
     private const float InfoRightMargin = 14f;
     private const float ScrollbarReserve = 24f;
+    private const float RowRightInset = ScrollbarReserve + 2f * InfoRightMargin;
     private const float StepButtonWidth = 32f;
     private const float StepValueWidth = 64f;
     private const float DescriptionHeightMinimum = 20f;
@@ -66,7 +67,7 @@ internal sealed class SettingsRowHost {
         if (row.Kind == SettingsRowKind.Header) return BuildHeader(row);
 
         var entryGo = NewEntry(row, row.Kind == SettingsRowKind.Info ? string.Empty : row.Label,
-            row.Kind != SettingsRowKind.Info);
+            row.Kind is not (SettingsRowKind.Info or SettingsRowKind.Key));   // key rows keep the game's own label width
         if (entryGo == null) return null;
 
         RectTransform? content = null;
@@ -102,6 +103,9 @@ internal sealed class SettingsRowHost {
                 case SettingsRowKind.Info:
                     BuildInfo(row, entryGo, content, view);
                     break;
+                case SettingsRowKind.Key:
+                    BuildKey(row, content, view);
+                    break;
             }
 
             return view;
@@ -133,7 +137,7 @@ internal sealed class SettingsRowHost {
         GameObject? go = null;
         try {
             go = UnityEngine.Object.Instantiate(HeaderPrefab.gameObject, Staging.Root);
-            go.name = "DM Settings Header";
+            go.name = SettingsHeaderAlign.HeaderName;   // placed off the label column after layout, see SettingsHeaderAlign
             NativeButton.StripForeign(go);
             DestroyLabel(go);
             SetText(go, row.Label);
@@ -209,9 +213,10 @@ internal sealed class SettingsRowHost {
         });
         view.Slider = slider;
 
-        float width = Mathf.Max(120f, AvailableWidth(content) - ScrollbarReserve);
-        SetControlSize(slider.Rt, width, slider.Height);
-        AlignControlLeft(slider.Rt);
+        // Follow the row's real width: a width measured at build time is wrong while the row is not laid out yet,
+        // and a slider that starts after the label column then runs over the scrollbar.
+        SetControlSize(slider.Rt, 120f, slider.Height);
+        StretchControlRight(slider.Rt, slider.Height);
     }
 
     private void BuildDropdown(SettingsRowHandle row, RectTransform content, SettingsRowView view) {
@@ -289,6 +294,20 @@ internal sealed class SettingsRowHost {
             UiLog.OnceError("settings:no-button", "native button template is unavailable");
             throw new InvalidOperationException("native button template is unavailable");
         }
+    }
+
+    private void BuildKey(SettingsRowHandle row, RectTransform content, SettingsRowView view) {
+        // exactly where the game puts its own key widget: straight into the entry's content holder, with the prefab's own layout
+        var key = SkinPolicy.TryNative("settings key", () =>
+            NativeKeyField.Create(content, row.ReadText(), () => {
+                try { row.Clicked?.Invoke(); }
+                catch (Exception e) { UiGuard.Report("settings.key", e, _scope.Id); }
+            }));
+        if (key == null) {
+            UiLog.OnceError("settings:no-key", "native key template is unavailable");
+            throw new InvalidOperationException("native key template is unavailable");
+        }
+        view.Key = key;
     }
 
     private void BuildStepper(SettingsRowHandle row, RectTransform content, SettingsRowView view) {
@@ -408,6 +427,16 @@ internal sealed class SettingsRowHost {
         rt.sizeDelta = new Vector2(width, height);
     }
 
+    /// <summary>Stretches a control from the content's left edge to the right edge minus the scrollbar reserve and the same right margin the Info rows keep, so both end at the same x.</summary>
+    private void StretchControlRight(RectTransform? rt, float height) {
+        if (rt == null) return;
+        rt.anchorMin = new Vector2(0f, 0.5f);
+        rt.anchorMax = new Vector2(1f, 0.5f);
+        rt.pivot = new Vector2(0f, 0.5f);
+        rt.offsetMin = new Vector2(_contentLeft, -height * 0.5f);
+        rt.offsetMax = new Vector2(-RowRightInset, height * 0.5f);
+    }
+
     private void AlignControlLeft(RectTransform? rt) {
         if (rt == null) return;
         rt.anchorMin = rt.anchorMax = new Vector2(0f, 0.5f);
@@ -417,8 +446,22 @@ internal sealed class SettingsRowHost {
 
     private float AvailableWidth(RectTransform? content) {
         float width = content != null ? content.rect.width : 0f;
-        if (width <= 1f) width = ColumnWidth - _contentLeft;
-        return Mathf.Max(80f, width - _contentLeft);
+        if (width <= 1f) width = PrefabContentWidth();
+        if (width <= 1f) width = ColumnWidth;
+        return Mathf.Max(80f, width - _contentLeft - RowRightInset);
+    }
+
+    /// <summary>
+    /// The content width the game's own entry prefab asks for (300 in the lobby box, 500 on the other pages). A row has no
+    /// real width until layout has run, and the holder's full width is wrong because the label column takes space first.
+    /// </summary>
+    private float PrefabContentWidth() {
+        var holder = EntryPrefab != null ? EntryPrefab.contentHolder : null;
+        if (holder == null) return 0f;
+
+        var layout = holder.GetComponent<LayoutElement>();
+        float width = layout != null ? Mathf.Max(layout.preferredWidth, layout.minWidth) : 0f;
+        return width > 1f ? width : holder.rect.width;
     }
 
     private static void AddLabelGap(GameObject entryGo) {

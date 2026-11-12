@@ -111,19 +111,21 @@ internal sealed class DemoController {
                 UiLog.Info("demo: the startup registration point fired");
                 ui.Native.TopBar.AddIconButton("hammer", "UiKit demo", Toggle);
 
+                // The order-5 button switches the order-15 button on and off. A button that disabled itself could never be
+                // clicked again to come back.
                 bool interactable = true;
-                TopBarButtonHandle? toggleInteractable = null;
-                toggleInteractable = ui.Native.TopBar.Add(new TopBarButtonSpec {
+                TopBarButtonHandle? target = null;
+                ui.Native.TopBar.Add(new TopBarButtonSpec {
                     Id = "uikit.demo.interactable",
                     IconName = "hammer",
-                    Tooltip = "UiKit order 5; click toggles interactable",
+                    Tooltip = "UiKit order 5; click toggles whether the order 15 button is interactable",
                     Order = 5,
                     OnClick = () => {
                         interactable = !interactable;
-                        toggleInteractable?.SetInteractable(interactable);
+                        target?.SetInteractable(interactable);
                     },
                 });
-                ui.Native.TopBar.Add(new TopBarButtonSpec {
+                target = ui.Native.TopBar.Add(new TopBarButtonSpec {
                     Id = "uikit.demo.order",
                     IconName = "hammer",
                     Tooltip = "UiKit order 15",
@@ -192,12 +194,30 @@ internal sealed class DemoController {
                 });
                 buttonRow?.Spacing(10f, 0f);
 
-                body.Text("Toggle, slider and dropdown");
-                body.Toggle("Toggle me", true, value => { if (status != null) status.Value = "Toggle: " + value; });
+                body.Text("Toggle, slider and dropdown (hover them for tooltips)");
+                body.Toggle("Toggle me", true, value => { if (status != null) status.Value = "Toggle: " + value; })
+                    ?.Tooltip("A toggle with the game's own tooltip.");
                 var slider = body.Slider(0f, 100f, 50f, value => { if (status != null) status.Value = "Slider: " + value.ToString("0"); });
                 slider?.Format("0");
+                slider?.Tooltip("Icons work in tooltips: {r.gold} {r.food} {o.population}");
                 body.Dropdown(new[] { "First option", "Second option", "Third option" }, 0,
-                              index => { if (status != null) status.Value = "Dropdown index: " + index; });
+                              index => { if (status != null) status.Value = "Dropdown index: " + index; })
+                    ?.Tooltip("A dropdown tooltip.");
+
+                body.Text("The game's dialog (on the match screen)");
+                body.Row(row => {
+                    row.Button("Ask", () => {
+                        bool shown = scope.Native.Dialogs.Confirm("UiKit demo: do you want 5 {r.gold}? (nothing is given)",
+                            onConfirm: () => { if (status != null) status.Value = "Dialog: confirmed"; },
+                            onCancel: () => { if (status != null) status.Value = "Dialog: cancelled"; });
+                        if (!shown && status != null) status.Value = "Dialog: not available on this screen";
+                    });
+                    row.Button("Info", () => {
+                        bool shown = scope.Native.Dialogs.Info("UiKit demo: an information box with the game's dialog.",
+                            onClose: () => { if (status != null) status.Value = "Dialog: closed"; });
+                        if (!shown && status != null) status.Value = "Dialog: not available on this screen";
+                    });
+                })?.Spacing(10f, 0f);
 
                 body.Text("Grid");
                 body.Grid(3, 90f, 32f, grid => {
@@ -208,18 +228,21 @@ internal sealed class DemoController {
                 }).Height(72f);
 
                 body.Text("Flexible grid");
+                // Flexible grid: as many columns as fit the width; its height follows the rows by itself (no Height() needed).
                 var flexible = body.Grid(grid => {
                     for (int i = 0; i < 4; i++) {
                         int number = i;
                         grid.Button("Auto " + number, () => { if (status != null) status.Value = "Flexible grid button " + number; });
                     }
                 });
-                flexible?.Height(48f);
+                flexible?.CellSize(100f, 32f);
                 flexible?.Spacing(10f, 4f);
 
                 body.Text("Image pointer Move and wheel");
                 var picture = body.Image(Texture2D.whiteTexture);
                 picture?.Height(90f).FillWidth();
+                picture?.KeepAspect(false);   // a square texture would otherwise stay square and not fill the width
+                picture?.Tooltip("An image: move the mouse or the wheel over it.");
                 picture?.Tint(new Color(0.35f, 0.55f, 0.9f, 1f)).UvRect(new Rect(0f, 0f, 1f, 1f));
                 picture?.OnPointer(e => {
                     if (status != null && e.Kind == UiPointerKind.Move)
@@ -268,6 +291,7 @@ internal sealed class DemoController {
     private void BuildDemoSettings() {
         var scope = _scope;
         if (scope == null) return;
+        int tabCount = 3;
         scope.Native.Settings.AddTab("uikit.demo", "UiKit", tab => {
             tab.AddHeader("UiKit native settings");
             tab.AddToggle("Demo toggle", true, value => UiLog.Info("demo settings toggle: " + value));
@@ -276,7 +300,7 @@ internal sealed class DemoController {
                             index => UiLog.Info("demo settings dropdown: " + index));
             tab.AddButton("Demo button", "Click", () => UiLog.Info("demo settings button clicked"));
             tab.AddInfo("Info rows wrap and can be updated through SetText.");
-            tab.AddStepper("Stepper", () => "3", delta => UiLog.Info("demo settings step: " + delta));
+            tab.AddStepper("Stepper", () => tabCount.ToString(), delta => tabCount += delta);
             tab.AddButtons("Buttons", ("One", () => UiLog.Info("demo settings buttons: one")),
                 ("Two", () => UiLog.Info("demo settings buttons: two")));
         });
@@ -336,14 +360,6 @@ internal sealed class DemoController {
     private void BuildNativeDemo(UiScope scope) {
         _scoreboard = scope.Native.Scoreboard.AddColumn("uikit.demo.score", "UiKit demo column");
         RefreshDemoScoreboard();
-
-        var tree = FindDemoTree();
-        if (tree == null) {
-            UiLog.Info("demo: no game tech tree is available, the Rules civilization demo is skipped");
-            return;
-        }
-
-        scope.Native.Rules.AddCivilization("uikit.demo.civ", "UiKit civilization", () => tree, 0);
     }
 
     private void RefreshDemoScoreboard() {
@@ -363,20 +379,6 @@ internal sealed class DemoController {
         column.SetValues(values);
     }
 
-    private static GameTechTree? FindDemoTree() {
-        try {
-            foreach (var candidate in UnityEngine.Resources.FindObjectsOfTypeAll(Il2CppType.Of<GameTechnologies>())) {
-                var technologies = candidate?.TryCast<GameTechnologies>();
-                if (technologies == null) continue;
-                return technologies.TechTree(GameCivilization.EUROPE);
-            }
-        }
-        catch (Exception e) {
-            UiLog.OnceError("demo:tech-tree", "could not read a game tech tree: " + e);
-        }
-        return null;
-    }
-
     private void BuildProbe(Layer layer, string text, Vector2 position, OrnamentStyle ornament) {
         var scope = _scope;
         if (scope == null) return;
@@ -390,7 +392,7 @@ internal sealed class DemoController {
              .Ornament(ornament);
 
             w.Body.Paragraph(text);
-            w.Body.Button("Bring to front", w.BringToFront);
+            w.Body.Button("Bring to front (within its layer)", w.BringToFront);
         });
 
         if (probe != null) _windows.Add(probe);

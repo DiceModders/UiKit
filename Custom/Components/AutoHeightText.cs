@@ -89,6 +89,10 @@ internal sealed class AutoHeightText : MonoBehaviour {
             return;
         }
         if (width < 1f) return;   // not laid out yet; the next frame or a width change will retry
+        // TMP wraps inside the rect minus its margins: measuring at the full width came out a line short whenever the margin pushed the last word
+        // to a new line, and that line then overlapped the next row (settings descriptions)
+        width -= text.margin.x + text.margin.z;
+        if (width < 1f) return;
 
         // TMP can release its shared material while a row is being rebuilt. Measure only when the text is measurable;
         // the row's minimum height is a safe fallback.

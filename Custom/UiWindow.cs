@@ -46,6 +46,7 @@ public sealed class UiWindow : UiElement {
     private bool _closed;
     private int? _sortingOrder;
     private bool _ordersListening;
+    private bool _closeOnEscape = true;
 
     private Vector2 _normalAnchorMin;
     private Vector2 _normalAnchorMax;
@@ -76,6 +77,7 @@ public sealed class UiWindow : UiElement {
             _position = new Vector2(60f + index * 28f, 60f + index * 28f);
             ApplyNormalLayout();
             LiveWindows.Add(this);
+            EscapeKey.Ensure();
         }
         catch (Exception e) {
             UiGuard.Report("window.construct", e, scope.Id);
@@ -264,6 +266,27 @@ public sealed class UiWindow : UiElement {
         _fullscreenButton = _titleButtons.Button(_fullscreen ? "Window" : "Full screen", HandleDoubleClick);
         UpdateFullscreenButton();
         return this;
+    }
+
+    /// <summary>Whether Escape closes this window when it is the front-most closable one (default on; only windows with a close button take part).</summary>
+    public UiWindow CloseOnEscape(bool on = true) {
+        _closeOnEscape = on;
+        return this;
+    }
+
+    /// <summary>Closes the front-most visible window that has a close button and <see cref="CloseOnEscape"/> on. False when there is none.</summary>
+    internal static bool CloseFront() {
+        UiWindow? front = null;
+        int frontOrder = int.MinValue, frontIndex = -1;
+        foreach (var w in LiveWindows) {
+            if (w == null || !w.IsVisible || w._closeButton == null || !w._closeOnEscape || w.Root == null) continue;
+            var canvas = w.Root.GetComponentInParent<Canvas>();
+            int order = canvas != null ? canvas.sortingOrder : 0, index = w.Root.GetSiblingIndex();
+            if (order > frontOrder || (order == frontOrder && index > frontIndex)) { front = w; frontOrder = order; frontIndex = index; }
+        }
+        if (front == null) return false;
+        front.Close();
+        return true;
     }
 
     public UiWindow Closable(bool on = true) {

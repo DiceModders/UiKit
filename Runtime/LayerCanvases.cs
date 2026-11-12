@@ -148,7 +148,9 @@ internal sealed class LayerCanvases : IDisposable {
     private static void ApplyRenderMode(Canvas? canvas, Layer layer, Canvas? hud) {
         if (canvas == null) return;
 
-        if (hud == null || hud.renderMode == RenderMode.ScreenSpaceOverlay || hud.worldCamera == null) {
+        // AboveGame draws over everything anyway, so it does not need camera space. In camera space it would sit just past the near plane
+        // (0.11 units), where a pixel is so small that float rounding while the camera moves makes edges and pictures shimmer.
+        if (layer == Layer.AboveGame || hud == null || hud.renderMode == RenderMode.ScreenSpaceOverlay || hud.worldCamera == null) {
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             return;
         }

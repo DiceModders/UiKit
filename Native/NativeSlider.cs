@@ -13,8 +13,9 @@ namespace DiceModders.UiKit.Native;
 /// value text. The setting binding is destroyed before the clone wakes up, so nothing is written to the game's settings.
 /// </summary>
 internal sealed class NativeSlider {
-    private const float ValueWidth = 64f;
+    private const float ValueWidth = 44f;
     private const float ValueGap = 8f;
+    private const float ValuePadding = 10f;
 
     public RectTransform? Rt { get; private set; }
     public Slider? Slider { get; private set; }
@@ -26,6 +27,7 @@ internal sealed class NativeSlider {
     private Action<float>? _changed;
     private UnityAction<float>? _unity;
     private string _format = "0.##";
+    private float _handleLeft;    // how far the handle sticks out past the track's left end (the value column moves the left edge)
 
     private NativeSlider() { }
 
@@ -66,15 +68,18 @@ internal sealed class NativeSlider {
         slider.minValue = min;
         slider.maxValue = max > min ? max : min + 1f;
         slider.SetValueWithoutNotify(Mathf.Clamp(value, slider.minValue, slider.maxValue));
-        LayoutParts(label, slider);
+        HandleOverhang(slider, out float handleLeft, out float handleRight);
+        LayoutParts(label, slider, handleLeft, handleRight);
 
         var result = new NativeSlider {
             Rt = rt,
             Slider = slider,
             ValueText = label,
             Height = height,
+            _handleLeft = handleLeft,
         };
         result.UpdateLabel();
+        result.FitValueColumn();
         return result;
     }
 
@@ -98,6 +103,7 @@ internal sealed class NativeSlider {
 
     public void SetFormat(string? format) {
         _format = string.IsNullOrEmpty(format) ? "0.##" : format;
+        FitValueColumn();
         UpdateLabel();
     }
 
@@ -108,6 +114,7 @@ internal sealed class NativeSlider {
             Slider.minValue = Mathf.Round(Slider.minValue);
             Slider.maxValue = Mathf.Round(Slider.maxValue);
             Slider.SetValueWithoutNotify(Mathf.Round(Slider.value));
+            FitValueColumn();
         }
         UpdateLabel();
     }
@@ -123,7 +130,64 @@ internal sealed class NativeSlider {
         Slider.minValue = min;
         Slider.maxValue = max > min ? max : min + 1f;
         Slider.SetValueWithoutNotify(Mathf.Clamp(Slider.value, Slider.minValue, Slider.maxValue));
+        FitValueColumn();
         UpdateLabel();
+    }
+
+    /// <summary>
+    /// Widens the value column when the text it shows (the range's ends and middle) is wider than the default column,
+    /// so a long value never runs into the track. It never shrinks below the default and is measured when the format
+    /// or range changes, not while dragging, so the track does not move under the handle. Sizes are canvas units, so
+    /// the result follows the game's canvas scaling at any resolution or aspect ratio.
+    /// </summary>
+    private void FitValueColumn() {
+        var label = ValueText;
+        var slider = Slider;
+        if (label == null || slider == null) return;
+
+        float width = ValueWidth;
+        try {
+            float min = slider.minValue, max = slider.maxValue;
+            foreach (float sample in new[] { min, max, (min + max) * 0.5f }) {
+                string text = sample.ToString(_format, CultureInfo.InvariantCulture);
+                width = Mathf.Max(width, label.GetPreferredValues(text).x + ValuePadding);
+            }
+        }
+        catch {
+            width = ValueWidth;   // text measuring can fail while TMP is mid-rebuild; keep the default column
+        }
+
+        var labelRt = label.rectTransform;
+        labelRt.sizeDelta = new Vector2(width, labelRt.sizeDelta.y);
+
+        var sliderRt = slider.GetComponent<RectTransform>();
+        if (sliderRt == null) return;
+        var offset = sliderRt.offsetMin;
+        sliderRt.offsetMin = new Vector2(width + ValueGap + _handleLeft, offset.y);
+    }
+
+    /// <summary>
+    /// The game's slider lets the handle stick out past both ends of the track by about half its width (its handle area is not
+    /// inset). Inside anything that clips (a window body, a scroll view) the handle is then cut off at the minimum or maximum.
+    /// Measures that overhang so the track can be inset by it and the handle always stays inside the control.
+    /// </summary>
+    private static void HandleOverhang(Slider slider, out float left, out float right) {
+        left = right = 0f;
+        try {
+            var handle = slider.handleRect;
+            if (handle == null) return;
+            float width = Mathf.Approximately(handle.anchorMin.x, handle.anchorMax.x) ? handle.sizeDelta.x : handle.rect.width;
+            if (width <= 1f) return;
+            float half = width * 0.5f;
+            var area = handle.parent != null ? handle.parent.GetComponent<RectTransform>() : null;
+            float areaLeft = area != null ? area.offsetMin.x : 0f;     // positive = the handle area is already inset on the left
+            float areaRight = area != null ? -area.offsetMax.x : 0f;   // positive = inset on the right
+            left = Mathf.Max(0f, half - areaLeft);
+            right = Mathf.Max(0f, half - areaRight);
+        }
+        catch {
+            left = right = 0f;   // keep the donor's layout
+        }
     }
 
     private void OnValueChanged(float value) {
@@ -137,14 +201,14 @@ internal sealed class NativeSlider {
     /// The donor prefab overlays its value label on the track. Lay the label out as a fixed column to the left of the
     /// track instead, so the value reads before the slider and long values do not cover the handle.
     /// </summary>
-    private static void LayoutParts(TMP_Text? label, Slider? slider) {
+    private static void LayoutParts(TMP_Text? label, Slider? slider, float handleLeft, float handleRight) {
         if (label != null) {
             var labelRt = label.rectTransform;
             labelRt.anchorMin = labelRt.anchorMax = new Vector2(0f, 0.5f);
             labelRt.pivot = new Vector2(0f, 0.5f);
             labelRt.anchoredPosition = Vector2.zero;
             labelRt.sizeDelta = new Vector2(ValueWidth, 32f);
-            label.alignment = TextAlignmentOptions.Right;
+            label.alignment = TextAlignmentOptions.Left;
         }
 
         var sliderRt = slider != null ? slider.GetComponent<RectTransform>() : null;
@@ -157,8 +221,8 @@ internal sealed class NativeSlider {
         sliderRt.anchorMin = new Vector2(0f, 0.5f);
         sliderRt.anchorMax = new Vector2(1f, 0.5f);
         sliderRt.pivot = new Vector2(0.5f, 0.5f);
-        sliderRt.offsetMin = new Vector2(label != null ? ValueWidth + ValueGap : 0f, -height * 0.5f);
-        sliderRt.offsetMax = new Vector2(0f, height * 0.5f);
+        sliderRt.offsetMin = new Vector2((label != null ? ValueWidth + ValueGap : 0f) + handleLeft, -height * 0.5f);
+        sliderRt.offsetMax = new Vector2(-handleRight, height * 0.5f);
     }
 
     private void UpdateLabel() {

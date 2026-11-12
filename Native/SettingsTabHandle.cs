@@ -124,6 +124,16 @@ public sealed class SettingsTabHandle : NativeHandle {
     }
 
     /// <summary>A wrapped paragraph. Use <see cref="SettingsRowHandle.SetText"/> to change it later.</summary>
+    /// <summary>A key binding row with the game's own key box (see <see cref="SettingsBlockHandle.AddKey"/>).</summary>
+    public SettingsRowHandle? AddKey(string? label, string? keyText, Action? clicked) {
+        var row = NewRow(SettingsRowKind.Key, label);
+        if (row == null) return null;
+        row.Text = keyText ?? string.Empty;
+        row.Clicked = clicked;
+        if (HasView) BuildRow(row);
+        return row;
+    }
+
     public SettingsRowHandle? AddInfo(string? text) {
         var row = NewRow(SettingsRowKind.Info, null);
         if (row == null) return null;

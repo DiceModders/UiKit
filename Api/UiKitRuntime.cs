@@ -42,6 +42,7 @@ internal sealed class UiKitRuntime {
         LayoutEvents.Activate();
         LayoutEvents.CanvasChanged += OnCanvasChanged;
         NativeHooks.Install(this);
+        NativeTooltip.Attach(this);
 
         try {
             Action<Scene, LoadSceneMode> loaded = OnSceneLoaded;
@@ -230,11 +231,13 @@ internal sealed class UiKitRuntime {
         Register<PointerReceiver>();
         Register<AutoHeightText>();
         Register<WidthWatcher>();
+        Register<SizeWatcher>();
         Register<ScrollPin>();
         Register<CanvasLayoutWatcher>();
         Register<DelegateLifetime>();
         Register<ScoreboardRowLifetime>();
         Register<SettingsScreenLifetime>();
+        Register<TooltipDriver>();
     }
 
     private static void Register<T>() where T : class {
@@ -302,6 +305,7 @@ internal sealed class UiKitRuntime {
         if (demo != null) UiGuard.Run("demo.dispose", demo.Dispose, "runtime");
 
         UiGuard.Run("native.hooks", NativeHooks.Uninstall, "runtime");
+        UiGuard.Run("native.tooltips", NativeTooltip.Detach, "runtime");
         UiGuard.Run("native.dispose", NativeUi.Dispose, "runtime");
 
         _readyCallbacks.Clear();
