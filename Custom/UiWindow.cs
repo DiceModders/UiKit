@@ -263,7 +263,7 @@ public sealed class UiWindow : UiElement {
         EnsureTitle();
         if (_titleButtons == null) return this;
 
-        _fullscreenButton = _titleButtons.Button(_fullscreen ? "Window" : "Full screen", HandleDoubleClick);
+        _fullscreenButton = _titleButtons.Button(_fullscreen ? UiTexts.Get("window") : UiTexts.Get("fullscreen"), HandleDoubleClick);
         UpdateFullscreenButton();
         return this;
     }
@@ -562,7 +562,7 @@ public sealed class UiWindow : UiElement {
 
     private void UpdateFullscreenButton() {
         if (_fullscreenButton == null || !_fullscreenButton.IsAlive) return;
-        _fullscreenButton.Text(_fullscreen ? "Window" : "Full screen");
+        _fullscreenButton.Text(_fullscreen ? UiTexts.Get("window") : UiTexts.Get("fullscreen"));
     }
 
     private void ApplyNormalLayout() {
