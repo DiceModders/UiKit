@@ -54,28 +54,33 @@ internal static class DialogIcons {
         return sprite;
     }
 
+    // Plain C# math only: Unity's Vector2 / Mathf / Color methods are calls into the game under IL2CPP, and this loop runs for 65,536 pixels.
     private static Texture2D DrawWarning() {
         var px = new Color32[Size * Size];
         // equilateral triangle, point up; its centroid sits low so the shape's box is centred
         const float half = 112f, round = 18f, rim = 12f;
-        var c = new Vector2(Size * 0.5f, Size * 0.395f);
+        const float cx = Size * 0.5f, cy = Size * 0.395f;
+        float[] rimC = { Rim.r, Rim.g, Rim.b }, topC = { Top.r, Top.g, Top.b }, botC = { Bottom.r, Bottom.g, Bottom.b }, markC = { Mark.r, Mark.g, Mark.b };
+        var col = new float[3];
         for (int y = 0; y < Size; y++) {
+            float t = Clamp01((y - (cy - half * 0.6f)) / (half * 1.5f));
             for (int x = 0; x < Size; x++) {
-                var p = new Vector2(x + 0.5f - c.x, y + 0.5f - c.y);
-                float tri = Triangle(p, half - round) - round;            // rounded outer edge
-                if (tri > 1f) { px[y * Size + x] = new Color32(0, 0, 0, 0); continue; }
+                float px0 = x + 0.5f - cx, py0 = y + 0.5f - cy;
+                float tri = Triangle(px0, py0, half - round) - round;     // rounded outer edge
+                if (tri > 1f) continue;                                    // stays transparent
 
-                float t = Mathf.Clamp01((y - (c.y - half * 0.6f)) / (half * 1.5f));
-                Color body = Color.Lerp(Bottom, Top, t);
-                Color col = Mix(Rim, body, Cover(tri + rim));             // the cream rim, then the amber body
-
-                // the "!": a rounded bar and a dot
-                float bar = Capsule(p, new Vector2(0f, 52f), new Vector2(0f, 2f), 12f);
-                float dot = (p - new Vector2(0f, -28f)).magnitude - 13f;
-                col = Mix(col, Mark, Cover(Mathf.Min(bar, dot)));
-
-                col.a *= Cover(tri);
-                px[y * Size + x] = col;
+                float kRim = Cover(tri + rim);                             // the cream rim, then the amber body
+                float bar = Capsule(px0, py0, 0f, 52f, 0f, 2f, 12f);       // the "!": a rounded bar and a dot
+                float dot = MathF.Sqrt(px0 * px0 + (py0 + 28f) * (py0 + 28f)) - 13f;
+                float kMark = Cover(MathF.Min(bar, dot));
+                for (int i = 0; i < 3; i++) {
+                    float body = botC[i] + (topC[i] - botC[i]) * t;
+                    float c = rimC[i] + (body - rimC[i]) * kRim;
+                    col[i] = c + (markC[i] - c) * kMark;
+                }
+                Color32 o = default;                                       // fields, not the constructor: no call into the game
+                o.r = B(col[0]); o.g = B(col[1]); o.b = B(col[2]); o.a = B(Cover(tri));
+                px[y * Size + x] = o;
             }
         }
         var tex = new Texture2D(Size, Size, TextureFormat.RGBA32, true) { filterMode = FilterMode.Trilinear, wrapMode = TextureWrapMode.Clamp, name = "uikit-warning" };
@@ -86,24 +91,27 @@ internal static class DialogIcons {
     }
 
     /// <summary>1 inside, 0 outside, a one-pixel ramp on the edge of a signed distance.</summary>
-    private static float Cover(float distance) => Mathf.Clamp01(0.5f - distance);
+    private static float Cover(float distance) => Clamp01(0.5f - distance);
 
-    private static Color Mix(Color under, Color over, float k) => new(
-        under.r + (over.r - under.r) * k, under.g + (over.g - under.g) * k, under.b + (over.b - under.b) * k, 1f);
+    private static float Clamp01(float v) => v < 0f ? 0f : v > 1f ? 1f : v;
+
+    private static byte B(float v) => (byte)(Clamp01(v) * 255f + 0.5f);
 
     /// <summary>Signed distance to an equilateral triangle (point up) with half-width <paramref name="r"/>.</summary>
-    private static float Triangle(Vector2 p, float r) {
+    private static float Triangle(float x, float y, float r) {
         const float k = 1.7320508f;
-        p.x = Mathf.Abs(p.x) - r;
-        p.y = p.y + r / k;       // point up (texture rows go up)
-        if (p.x + k * p.y > 0f) p = new Vector2(p.x - k * p.y, -k * p.x - p.y) / 2f;
-        p.x -= Mathf.Clamp(p.x, -2f * r, 0f);
-        return -p.magnitude * Mathf.Sign(p.y);
+        x = MathF.Abs(x) - r;
+        y = y + r / k;           // point up (texture rows go up)
+        if (x + k * y > 0f) { float nx = (x - k * y) / 2f, ny = (-k * x - y) / 2f; x = nx; y = ny; }
+        x -= Math.Clamp(x, -2f * r, 0f);
+        float len = MathF.Sqrt(x * x + y * y);
+        return y >= 0f ? -len : len;      // Mathf.Sign(0) is 1
     }
 
-    private static float Capsule(Vector2 p, Vector2 a, Vector2 b, float r) {
-        Vector2 pa = p - a, ba = b - a;
-        float h = Mathf.Clamp01(Vector2.Dot(pa, ba) / Vector2.Dot(ba, ba));
-        return (pa - ba * h).magnitude - r;
+    private static float Capsule(float px, float py, float ax, float ay, float bx, float by, float r) {
+        float pax = px - ax, pay = py - ay, bax = bx - ax, bay = by - ay;
+        float h = Clamp01((pax * bax + pay * bay) / (bax * bax + bay * bay));
+        float dx = pax - bax * h, dy = pay - bay * h;
+        return MathF.Sqrt(dx * dx + dy * dy) - r;
     }
 }

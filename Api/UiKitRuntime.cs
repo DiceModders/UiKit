@@ -260,6 +260,7 @@ internal sealed class UiKitRuntime {
             Templates.Invalidate();
         }, "runtime");
         UiGuard.Run("scene.delegates", Il2CppDelegates.Sweep, "runtime");
+        UiGuard.Run("scene.dialog", () => Layers.SetDialogOpen(false), "runtime");   // a dialog destroyed with its scene never calls Close
         UiGuard.Run("scene.layers", Layers.Refresh, "runtime");
         UiGuard.Run("scene.native", NativeUi.Refresh, "runtime");
         UiGuard.Run("scene.demo", () => _demo?.OnSceneLoaded(), "runtime");

@@ -60,7 +60,10 @@ internal static class NativeTooltip {
         catch (Exception e) { UiLog.Warn("tooltip: hover hook failed: " + e.Message); }
     }
 
+    private static IntPtr _lastTarget;   // the object under the pointer last time (reset when targets change)
+
     public static void Detach() {
+        _lastTarget = IntPtr.Zero;
         Targets.Clear();
         Hide();
         _hoverId = 0;
@@ -76,6 +79,10 @@ internal static class NativeTooltip {
     public static void HoverPostfix(GameObject newEnterTarget) {
         try {
             if (Targets.Count == 0 && _hoverId == 0) return;
+            // called every frame for the mouse: the same object as last frame changes nothing, so skip the walk up its parents
+            IntPtr target = newEnterTarget != null ? newEnterTarget.Pointer : IntPtr.Zero;
+            if (target == _lastTarget) return;
+            _lastTarget = target;
             int id = Find(newEnterTarget);
             if (id == _hoverId) return;
             _hoverId = id;
@@ -106,6 +113,7 @@ internal static class NativeTooltip {
     /// <summary>Shows <paramref name="text"/> when the pointer rests on <paramref name="go"/> (or anything inside it); null or empty removes it.</summary>
     public static void Set(GameObject? go, string? text) {
         if (go == null) return;
+        _lastTarget = IntPtr.Zero;   // a target added or removed under the resting pointer is seen on the next frame
         int id = go.GetInstanceID();
 
         if (string.IsNullOrWhiteSpace(text)) {

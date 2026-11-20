@@ -17,28 +17,31 @@ internal static class LayoutOnce {
 
     public static void Begin() => _enabled = true;
 
-    public static void Request(Action? action) {
-        if (!_enabled || action == null) return;
+    /// <summary>Queues <paramref name="action"/>; false when it was not queued (UiKit is shutting down or nothing was given).</summary>
+    public static bool Request(Action? action) {
+        if (!_enabled || action == null) return false;
         Pending.Add(action);
-        if (_scheduled) return;
+        if (_scheduled) return true;
 
         try {
             Action callback = Flush;
             var handler = DelegateSupport.ConvertDelegate<Canvas.WillRenderCanvases>(callback);
             if (handler == null) {
                 Flush();
-                return;
+                return true;
             }
 
             _handler = handler;
             _scheduled = true;
             Canvas.willRenderCanvases += handler;
+            return true;
         }
         catch (Exception e) {
             _handler = null;
             _scheduled = false;
             UiLog.Once("layout:once", "could not schedule a layout callback: " + e.Message);
             Flush();
+            return true;
         }
     }
 
